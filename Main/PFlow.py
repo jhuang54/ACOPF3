@@ -41,3 +41,5 @@ S = v * np.conj(I)
 print(S)
 
 print(I)
+
+print(S)
