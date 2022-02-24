@@ -1,0 +1,45 @@
+net.bus
+index   name  vn_kv type  zone  in_service  min_vm_pu  max_vm_pu
+0         2  23.00    b   5.0        True        0.9        1.1
+1         3  69.00    b   9.0        True        0.9        1.1
+2         4  23.00    b   5.0        True        0.9        1.1
+3         6  23.00    b   6.0        True        0.9        1.1
+4         7  23.00    b   5.0        True        0.9        1.1
+  
+net.load
+    name  bus   p_mw  q_mvar  ...  scaling  in_service  type  controllable
+0   None    7  1.711   0.437  ...      1.0        True   wye         False
+'bus': (index in net.bus, NOT 'name' in net.bus)
+net.sgen
+     name  bus   p_mw  q_mvar  ...  max_p_mw  min_q_mvar  max_q_mvar controllable
+0    None    7  0.483   0.000  ...     0.929       0.000       0.000         True   
+1    None    7  0.606  -0.123  ...     1.437      -0.123      -0.123         True
+'bus': (index in net.bus, NOT 'name' in net.bus)
+net.gen
+    name  bus    p_mw  ...  min_p_mw  max_p_mw  power_station_trafo
+0   None    7   0.117  ...      0.00     0.248                  NaN
+'bus': (index in net.bus, NOT 'name' in net.bus)
+   
+net.res_load
+     p_mw  q_mvar
+0   1.711   0.437
+order in net.res_load is the same as that in net.load
+
+net.res_sgen
+ p_mw  q_mvar
+0    0.483   0.000
+1    0.606  -0.123
+order in net.res_sgen is the same as that in net.sgen
+
+net.res_gen
+ p_mw    q_mvar  va_degree   vm_pu
+0    0.117 -1.279688  -2.894199  1.0000
+order in net.res_gen is the same as that in net.sgen
+
+net.res_bus.loc[7]
+vm_pu        1.000000
+va_degree   -2.894199
+p_mw         0.505000
+q_mvar       1.839688
+
+1.711-(0.483+0.606+0.117)=0.505
