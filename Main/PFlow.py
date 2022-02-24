@@ -39,3 +39,5 @@ I = Ybus.dot(v)
 S = v * np.conj(I)
 
 print(S)
+
+print(I)
