@@ -1,0 +1,12 @@
+Ypu=Ybus
+YLL_pu=Ypu(4:end,4:end);
+Z_pu=YLL_pu\eye(n_LL);
+
+Zt=Z_pu*sparse(diag(conj(1./Vpu0))); %which bus is the slack bus? What's complex voltage of the slack bus (Vpu0)?
+
+My=[Zt -1i*Zt];
+Ky=diag(1./abs(Vpu0))*real(diag(conj(Vpu0))*My);
+const_vm_FPL=abs(Vpu0);
+
+
+vm_FPL=const_vm_FPL+Ky*[pLL-pLL0;qLL-qLL0];%(pLL0,qLL0): given operation point, like(0,0)
