@@ -42,9 +42,7 @@ va_degree   -2.894199
 p_mw         0.505000
 q_mvar       1.839688
 
-net p injection:
 1.711-(0.483+0.606+0.117)=0.505
-net q injection:
-0.437+0.123+1.279688=1.839688
+
 
 model a generator as PQ load with fixed reactive power and variable voltage, please use a static generator instead.

@@ -1,3 +1,4 @@
+# load is negative in linearized power flow model, but positive in net.load
 import pandapower as pp
 #import pandapower.networks
 
@@ -53,6 +54,10 @@ busid_slack=net.ext_grid.bus[0]
 busid_LL=list(range(0,nbus))
 busid_LL.remove(busid_slack)
 
+busid_gen=list(net.gen.bus)
+#busid_gen.remove(busid_slack)
+
+
 busid_ld=net.load.bus
 busid_ld=list(busid_ld)
 nlsbus=len(busid_ld)
@@ -63,8 +68,12 @@ busid_s_ld=np.array(busid_ld).searchsorted(busid_slack)
 busid_ld_lds=list(range(0,nlsbus))
 busid_ld_lds.remove(busid_s_ld)
 
-# map from load bus to N
+# map from load bus to index in LL
 busid_ld.remove(busid_slack)
+
+busid_ld_set=set(busid_ld)
+busid_ldgen=busid_ld_set.intersection(busid_gen)
+
 busid_ld_LL=np.array(busid_LL).searchsorted(busid_ld)
 
 YLL=Ybus[np.ix_(busid_LL,busid_LL)]
@@ -106,9 +115,9 @@ qld_t=net_t.load.q_mvar.to_numpy()
 qld_t=np.delete(qld_t, busid_s_ld)
 
 pll_t=np.zeros(nLL)
-pll_t[busid_ld_LL]=pld_t
+pll_t[busid_ld_LL]=-pld_t# load is negative in linearized power flow model
 qll_t=np.zeros(nLL)
-qll_t[busid_ld_LL]=qld_t
+qll_t[busid_ld_LL]=-qld_t
 
 
 pld=net.load.p_mw.to_numpy()
@@ -117,9 +126,9 @@ qld=net.load.q_mvar.to_numpy()
 qld=np.delete(qld,busid_s_ld)
 
 pll=np.zeros(nLL)
-pll[busid_ld_LL]=pld
+pll[busid_ld_LL]=-pld
 qll=np.zeros(nLL)
-qll[busid_ld_LL]=qld
+qll[busid_ld_LL]=-qld
 
 lambda_u=np.zeros(nLL)
 lambda_d=np.zeros(nLL)
@@ -147,8 +156,8 @@ for iter in range(iter_max):
     # print('min dpll: \n',dpll[busid_ld_LL].min())
     # print('max dqll: \n',dqll[busid_ld_LL].max())
     # print('min dqll: \n',dqll[busid_ld_LL].min())
-    pll_t=pll_t-epsi_p*(2*alpha*(pll_t-pll)-Rt.dot(lambda_u-lambda_d))
-    qll_t=qll_t-epsi_q*(2*alpha*(qll_t-qll)-Xt.dot(lambda_u-lambda_d))
+    pll_t=pll_t-epsi_p*(2*alpha*(pll_t-pll)+Rt.dot(lambda_u-lambda_d))
+    qll_t=qll_t-epsi_q*(2*alpha*(qll_t-qll)+Xt.dot(lambda_u-lambda_d))
     
     lambda_u=lambda_u+epsi_l*(vll-v_u)
     lambda_d=lambda_d+epsi_l*(v_l-vll)
@@ -166,8 +175,8 @@ for iter in range(iter_max):
     pld_t=pll_t[busid_ld_LL]
     qld_t=qll_t[busid_ld_LL]
     
-    net_t.load.p_mw[busid_ld_lds]=pld_t
-    net_t.load.q_mvar[busid_ld_lds]=qld_t
+    net_t.load.p_mw[busid_ld_lds]=-pld_t# load is positive in net.load
+    net_t.load.q_mvar[busid_ld_lds]=-qld_t
     pp.runpp(net_t, algorithm='nr', calculate_voltage_angles=True)
     v=net_t.res_bus.vm_pu.values
     vll=v[busid_LL]
