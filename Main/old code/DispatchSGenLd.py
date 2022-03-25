@@ -1,5 +1,8 @@
-# load is negative in linearized power flow model, but positive in net.load
-# dispatch net.gen (P,V) and net.load (P,Q)
+# load is negative in linearized power flow model, but positive in net.load.p_mw, net.load.q_mvar
+# generation is positive in linearized power flow model, and positive in net.gen.p_mw, net.gen.q_mvar, net.sgen. p_mw,net.sgen.q_mvar
+# net.load.p_mw, net.load.q_mwar, net.gen.p_mw, net.gen.q_mvar, net.sgen. p_mw,net.sgen.q_mvar are real value with unit mw and mwar
+# linearized power flow model use p.u., sbase=10mva
+# dispatch net.gen (P,V), net.sgen (P,Q), and net.load (P,Q)
 import pandapower as pp
 #import pandapower.networks
 
@@ -15,8 +18,11 @@ import matplotlib.pyplot as plt
 iter_max=1100
 alpha_ld=1# f=alpha*(pld-\hat{pld})^2
 alpha_g=0.1# f=alpha*(pld-\hat{pld})^2
+alpha_sg=0.1
 beta_ld=2# capacity of DER=rated value*beta
 beta_g=1.5# capacity of Generator=rated value*beta
+beta_sg=1.5
+
 
 # convert matpower case file version 2 to a pandapower net.
 path_cur = Path(os.getcwd())
@@ -25,6 +31,8 @@ path_output = os.path.join(path_par, 'Matlab files\output file')
 icase = 'Maui2022dm_rd_v33.mat'
 net = pc.from_mpc(path_output + '\\' + icase, f_hz=60)
 net_t=pc.from_mpc(path_output + '\\' + icase, f_hz=60)
+icase= 'Maui2022dm_rd_AggregateGens.mat'
+net_AggG=pc.from_mpc(path_output + '\\' + icase, f_hz=60)
 # icase = 'Maui2022dm_rd_NoPV.mat'
 # net_sim=pc.from_mpc(path_output + '\\' + icase, f_hz=60)
 
@@ -92,6 +100,17 @@ busid_ld.remove(busid_slack)
 
 busid_ld_LL=np.array(busid_LL).searchsorted(busid_ld)
 
+# index of sgen
+busid_sg=net.sgen.bus
+busid_sg_LL=np.array(busid_LL).searchsorted(busid_sg)
+
+nsgen=len(busid_sg)
+sgen_to_LL=np.zeros((nLL,nsgen), dtype=int)
+for isgen in range(0,nsgen):
+    sgen_to_LL[busid_sg_LL[isgen],isgen]=1
+
+id_sgen_OutSer=np.where(net.sgen.in_service==False)
+
 YLL=Ybus[np.ix_(busid_LL,busid_LL)]
 #YLL=YLL.todense()
 Z_pu=inv(YLL)
@@ -123,11 +142,15 @@ R=np.real(Kyr)
 Rt=np.transpose(R)
 Rt=Rt
 
+Rsgen=R[np.ix_(range(0,nLL),busid_sg_LL)]# update sgen
+
 #X=np.real(1/vm0*np.conj(v0)*(-1j)*Zt)
 X=np.real(-1j*Kyr)
 #Xt=csc_matrix.transpose(X)
 Xt=np.transpose(X)
 Xt=Xt
+
+Xsgen=X[np.ix_(range(0,nLL),busid_sg_LL)]# update sgen
 
 # # available load
 # pld=net.load.p_mw.to_numpy()
@@ -139,7 +162,10 @@ epsi_pld=0.05
 epsi_qld=0.05
 epsi_pg=0.05
 epsi_qg=0.05
-epsi_l=0.12
+epsi_psg=0.05
+epsi_qsg=0.05
+epsi_l=0.15
+
 v_l=0.95
 v_u=1.05
 
@@ -189,6 +215,7 @@ qll_g_t[busid_g_LL]=qg_t
 # desired values of gen
 pg=net.res_gen.p_mw.to_numpy()/sbase
 qg=net.res_gen.q_mvar.to_numpy()/sbase
+vg=net.res_gen.vm_pu
 
 pll_g=np.zeros(nLL)
 pll_g[busid_g_LL]=pg# load is negative in linearized power flow model
@@ -205,6 +232,26 @@ qll_g_max[busid_g_LL]=abs(qg)*beta_g
 qll_g_min=np.zeros(nLL)
 qll_g_min[busid_g_LL]=-abs(qg)*beta_g
 
+
+# initial values of sgen
+psg_t=net.res_sgen.p_mw.to_numpy()/sbase
+qsg_t=net.res_sgen.q_mvar.to_numpy()/sbase
+
+# desired values of sgen
+psg=net.res_sgen.p_mw.to_numpy()/sbase
+qsg=net.res_sgen.q_mvar.to_numpy()/sbase
+
+# capacity of sGenerator
+psg_max=abs(psg)*beta_sg
+psg_max[id_sgen_OutSer]=0#inactive generators which are out of service
+psg_min=np.zeros(nsgen)
+psg_min[id_sgen_OutSer]=0#inactive generators which are out of service
+
+
+qsg_max=abs(qsg)*beta_sg
+qsg_max[id_sgen_OutSer]=0#inactive generators which are out of service
+qsg_min=-abs(qsg)*beta_sg
+qsg_min[id_sgen_OutSer]=0#inactive generators which are out of service
 
 # power flow solution
 # vm = net.res_bus.vm_pu.values
@@ -232,8 +279,8 @@ pll_net_t=np.real(S[busid_LL])# DON'T use net.res_bus.p_mw[busid_LL].to_numpy()/
 qll_net_t=np.imag(S[busid_LL])
 sll_net_t=S[busid_LL]
 
-psgen_net_t=pll_net_t-pll_ld_t-pll_g_t
-qsgen_net_t=qll_net_t-qll_ld_t-qll_g_t
+# psgen_net_t=pll_net_t-pll_ld_t-pll_g_t
+# qsgen_net_t=qll_net_t-qll_ld_t-qll_g_t
 
 lambda_u=np.zeros(nLL)
 lambda_d=np.zeros(nLL)
@@ -254,20 +301,20 @@ lambda_d=np.zeros(nLL)
 
 vll0=vll
 
-itr_pf=0
-itr_pf_max=20
-err_vll=1
-while (err_vll>1e-5 and itr_pf<itr_pf_max):
-    #vll=Z_pu*np.conj(sll_net_t/vll)+vs
-    ILL=np.conj(sll_net_t/vll)
-    dv=np.matmul(Z_pu,ILL.transpose())
-    vll=np.squeeze(np.asarray(dv))+w
-    err_vll=max(abs(vll-vll0))
-    vll0=vll
-    itr_pf=itr_pf+1
+# itr_pf=0
+# itr_pf_max=20
+# err_vll=1
+# while (err_vll>1e-5 and itr_pf<itr_pf_max):
+    # #vll=Z_pu*np.conj(sll_net_t/vll)+vs
+    # ILL=np.conj(sll_net_t/vll)
+    # dv=np.matmul(Z_pu,ILL.transpose())
+    # vll=np.squeeze(np.asarray(dv))+w
+    # err_vll=max(abs(vll-vll0))
+    # vll0=vll
+    # itr_pf=itr_pf+1
            
-if err_vll>1e-3:
-    raise Exception('power flow diverge!\n')
+# if err_vll>1e-3:
+    # raise Exception('power flow diverge!\n')
 
 class result:
     def __init__(self, iter_max):
@@ -295,6 +342,9 @@ for iter in range(iter_max):
     dvcnstr_dp=np.squeeze(np.array(dvcnstr_dp))# convert to array
     dvcnstr_dq=Xt.dot(lambda_u-lambda_d)
     dvcnstr_dq=np.squeeze(np.array(dvcnstr_dq))# convert to array
+    
+    dvcnstr_dsp=dvcnstr_dp[np.ix_(busid_sg_LL)]
+    dvcnstr_dsq=dvcnstr_dq[np.ix_(busid_sg_LL)]
     # dvcnstr_dp=np.matmul(Rt,(lambda_u-lambda_d))
     # dvcnstr_dq=np.matmul(Xt,(lambda_u-lambda_d))
     
@@ -306,8 +356,12 @@ for iter in range(iter_max):
     pll_g_t=pll_g_t-epsi_pg*(2*alpha_g*(pll_g_t-pll_g)+dvcnstr_dp)
     qll_g_t=qll_g_t-epsi_qg*(2*alpha_g*(qll_g_t-qll_g)+dvcnstr_dq)
     
-    lambda_u=lambda_u+epsi_l*(vmll-v_u)
-    lambda_d=lambda_d+epsi_l*(v_l-vmll)
+    # minimize sgeneration from coal sgenerator 
+    psg_t=psg_t-epsi_psg*(2*alpha_sg*(psg_t-psg)+dvcnstr_dsp)
+    qsg_t=qsg_t-epsi_qsg*(2*alpha_sg*(qsg_t-qsg)+dvcnstr_dsq)
+    
+    # lambda_u=lambda_u+epsi_l*(vmll-v_u)
+    # lambda_d=lambda_d+epsi_l*(v_l-vmll)
     
     # project
     pll_ld_t=np.maximum(pll_ld_t,pll_ld_min)
@@ -320,12 +374,21 @@ for iter in range(iter_max):
     qll_g_t=np.maximum(qll_g_t,qll_g_min)
     qll_g_t=np.minimum(qll_g_t,qll_g_max)
     
-    lambda_u=np.maximum(lambda_u,0)
-    lambda_d=np.maximum(lambda_d,0)
+    psg_t=np.maximum(psg_t,psg_min)
+    psg_t=np.minimum(psg_t,psg_max)
+    qsg_t=np.maximum(qsg_t,qsg_min)
+    qsg_t=np.minimum(qsg_t,qsg_max)
+    
+    # sgen to sll
+    pll_sg_t=np.matmul(sgen_to_LL,psg_t)
+    qll_sg_t=np.matmul(sgen_to_LL,qsg_t)
     
     # update net injections
-    pll_net_t=psgen_net_t+pll_ld_t+pll_g_t
-    qll_net_t=qsgen_net_t+qll_ld_t+qll_g_t 
+    # pll_net_t=psgen_net_t+pll_ld_t+pll_g_t
+    # qll_net_t=qsgen_net_t+qll_ld_t+qll_g_t 
+    
+    pll_net_t=pll_ld_t+pll_g_t+pll_sg_t
+    qll_net_t=qll_ld_t+qll_g_t+qll_sg_t 
     sll_net_t=pll_net_t+1j*qll_net_t
     
 
@@ -349,41 +412,52 @@ for iter in range(iter_max):
 
          
     # dispatch load 
-    pld_t=-pll_ld_t[busid_ld_LL]*sbase
-    qld_t=-qll_ld_t[busid_ld_LL]*sbase
+    # pld_t=-pll_ld_t[busid_ld_LL]*sbase
+    # qld_t=-qll_ld_t[busid_ld_LL]*sbase
     
-    net_t.load.p_mw[busid_ld_lds]=pld_t# load is positive in net.load
-    net_t.load.q_mvar[busid_ld_lds]=qld_t
+    net_t.load.p_mw[busid_ld_lds]=-pll_ld_t[busid_ld_LL]*sbase# load is positive in net.load
+    net_t.load.q_mvar[busid_ld_lds]=-qll_ld_t[busid_ld_LL]*sbase
     
     # dispatch (p,v) for generator
-    pg_t=pll_g_t[busid_g_LL]*sbase
+    pg_t=pll_g_t[busid_g_LL]
     vg_t=abs(vll[busid_g_LL])
     
-    net_t.gen.p_mw=pg_t
+    net_t.gen.p_mw=pg_t*sbase
     net_t.gen.vm_pu=vg_t
+    
+    # dispatch (p,q) for sgen
+    net_t.sgen.p_mw=psg_t*sbase # from p.u to real value
+    net_t.sgen.q_mvar=qsg_t*sbase
     
     pp.runpp(net_t, algorithm='nr', calculate_voltage_angles=True)
 
     # check whether generator tracks dispatch 
     # load
-    pld_t_m=net_t.res_load.p_mw.to_numpy()
+    pld_t_m=-net_t.res_load.p_mw.to_numpy()/sbase
     pld_t_m=np.delete(pld_t_m, busid_s_ld)
-    qld_t_m=net_t.res_load.q_mvar.to_numpy()
+    qld_t_m=-net_t.res_load.q_mvar.to_numpy()/sbase
     qld_t_m=np.delete(qld_t_m, busid_s_ld)
     
     # generator
-    pg_t_m=net_t.res_gen.p_mw.to_numpy()
+    pg_t_m=net_t.res_gen.p_mw.to_numpy()/sbase
     # qg_t_m=net_t.res_gen.q_mvar/sbase
     vg_t_m=net_t.res_gen.vm_pu.to_numpy()
+    
+    # sgenerator
+    psg_t_m=net_t.res_sgen.p_mw.to_numpy()/sbase
+    # qg_t_m=net_t.res_gen.q_mvar/sbase
+    qsg_t_m=net_t.res_sgen.q_mvar.to_numpy()/sbase
     
     # mismatch between dispatch and measurements
     dpld=abs(pld_t_m-pld_t)
     dqld=abs(qld_t_m-qld_t)
     dpg=abs(pg_t_m-pg_t)
     dvg=abs(vg_t_m-vg_t)
+    dpsg=abs(psg_t_m-psg_t)
+    dqsg=abs(qsg_t_m-qsg_t)
     
-    if dpld.max()>1e-2 or dqld.max()>1e-2 or dpg.max()>1e-2 or dvg.max()>2e-3:
-        print('iteration:%d: large mismatch' %iter)
+    # if dpld.max()>1e-2 or dqld.max()>1e-2 or dpg.max()>1e-3 or dvg.max()>2e-3 or dpsg.max()>1e-2 or dqsg.max()>1e-2:
+    #     print('iteration:%d: large mismatch' %iter)
         
     # print('maximum mismatch:')
     # print('pld:%.8f' %dpld.max())
@@ -396,6 +470,14 @@ for iter in range(iter_max):
     # print('min v:',abs(vll).min())
     
     vmll=net_t.res_bus.vm_pu.values[busid_LL]
+    
+    # update dual variables
+    lambda_u=lambda_u+epsi_l*(vmll-v_u)
+    lambda_d=lambda_d+epsi_l*(v_l-vmll)
+    
+    # project dual variables
+    lambda_u=np.maximum(lambda_u,0)
+    lambda_d=np.maximum(lambda_d,0)
     
     # plt.figure(1)
     # plt.plot(abs(vll))
@@ -434,31 +516,84 @@ plt.title('Lambda')
 plt.grid(True)
 plt.savefig(path_plt+'/lambda.png', dpi=400)    
 
-# capacity of generators
+# # capacity of generators
+# plt.figure(3)
+# plt.plot(-pll_ld_t,linewidth=1)
+# plt.plot(pll_ld_min,'.', markersize=2)
+# plt.plot(pll_ld_max,'.', markersize=2)
+# plt.title('real load')
+# plt.savefig(path_plt+'/PldvsCapacity.png', dpi=400)  
+
+# plt.figure(4)
+# plt.plot(-qll_ld_t,linewidth=1)
+# plt.plot(qll_ld_min,'.', markersize=2)
+# plt.plot(qll_ld_max,'.', markersize=2)
+# plt.title('reactive load')
+# plt.savefig(path_plt+'/QldvsCapacity.png', dpi=400)  
+
+# DER optimal vs intial (p,q)
 plt.figure(3)
-plt.plot(-pll_ld_t,linewidth=1)
-plt.plot(pll_ld_min,'.', markersize=2)
-plt.plot(pll_ld_max,'.', markersize=2)
-plt.title('real load')
-plt.savefig(path_plt+'/PldvsCapacity.png', dpi=400)  
+plot_pldt=plt.plot(-pld_t*sbase,linewidth=1)
+plot_pld=plt.plot(-pld*sbase,linewidth=1)
+plt.title('real load (mw)')
+plt.legend((plot_pldt[0], plot_pld[0]), ('Optimal', 'Initial'))
+plt.savefig(path_plt+'/Pld.png', dpi=400)  
 
 plt.figure(4)
-plt.plot(-qll_ld_t,linewidth=1)
-plt.plot(qll_ld_min,'.', markersize=2)
-plt.plot(qll_ld_max,'.', markersize=2)
-plt.title('reactive load')
-plt.savefig(path_plt+'/QldvsCapacity.png', dpi=400)  
+plot_qldt=plt.plot(-qld_t*sbase,linewidth=1)
+plot_qld=plt.plot(-qld*sbase,linewidth=1)
+plt.title('real load (mvar)')
+plt.legend((plot_qldt[0], plot_qld[0]), ('Optimal', 'Initial'))
+plt.savefig(path_plt+'/Qld.png', dpi=400)  
 
+# plt.figure(5)
+# plt.plot(pll_g_t,linewidth=1)
+# plt.plot(pll_g_min,'.', markersize=2)
+# plt.plot(pll_g_max,'.', markersize=2)
+# plt.title('real power generation')
+# plt.savefig(path_plt+'/PgenvsCapacity.png', dpi=400)  
+
+# plt.figure(6)
+# plt.plot(qll_g_t,linewidth=1)
+# plt.plot(qll_g_min,'.', markersize=2)
+# plt.plot(qll_g_max,'.', markersize=2)
+# plt.title('reactive power generation')
+# plt.savefig(path_plt+'/QgenvsCapacity.png', dpi=400) 
+
+# gen optimal vs intial (p,v)
 plt.figure(5)
-plt.plot(pll_g_t,linewidth=1)
-plt.plot(pll_g_min,'.', markersize=2)
-plt.plot(pll_g_max,'.', markersize=2)
-plt.title('real power generation')
-plt.savefig(path_plt+'/PgenvsCapacity.png', dpi=400)  
+plot_pg=plt.plot(pg*sbase,'.',markersize=2.5)
+plot_pgt=plt.plot(pg_t*sbase,'.',markersize=2.5)
+plt.title('Pgen (mw)')
+#plt.legend((plot_psgt[0], plot_psg[0],plot_psgmin[0], plot_psgmax[0]), ('Optimal', 'Initial','Min', 'Max'))
+plt.legend((plot_pgt[0], plot_pg[0]), ('Optimal', 'Initial'))
+plt.savefig(path_plt+'/Pgen.png', dpi=400)  
 
 plt.figure(6)
-plt.plot(qll_g_t,linewidth=1)
-plt.plot(qll_g_min,'.', markersize=2)
-plt.plot(qll_g_max,'.', markersize=2)
-plt.title('reactive power generation')
-plt.savefig(path_plt+'/QgenvsCapacity.png', dpi=400) 
+plot_vg=plt.plot(vg,linewidth=1)
+plot_vgt=plt.plot(vg_t,'--',linewidth=1)
+plt.title('Vg (p.u.)')
+#plt.legend((plot_psgt[0], plot_psg[0],plot_psgmin[0], plot_psgmax[0]), ('Optimal', 'Initial','Min', 'Max'))
+plt.legend((plot_vgt[0], plot_vg[0]), ('Optimal', 'Initial'))
+plt.savefig(path_plt+'/Vg.png', dpi=400)
+
+# sgen optimal vs intial (p,q)
+plt.figure(7)
+# plot_psg=plt.plot(psg,linewidth=1,'*')
+# plot_psgt=plt.plot(psg_t,linewidth=1,'*')
+# plot_psgmin=plt.plot(psg_min,'.', markersize=2)
+# plot_psgmax=plt.plot(psg_max,'.', markersize=2)
+plot_psg=plt.plot(psg*sbase,'.',markersize=2.5)
+plot_psgt=plt.plot(psg_t*sbase,'.',markersize=2.5)
+plt.title('Psgen (mw)')
+#plt.legend((plot_psgt[0], plot_psg[0],plot_psgmin[0], plot_psgmax[0]), ('Optimal', 'Initial','Min', 'Max'))
+plt.legend((plot_psgt[0], plot_psg[0]), ('Optimal', 'Initial'))
+plt.savefig(path_plt+'/Psgen.png', dpi=400)  
+
+plt.figure(8)
+plot_qsg=plt.plot(qsg*sbase,linewidth=1)
+plot_qsgt=plt.plot(qsg_t*sbase,'--',linewidth=1)
+plt.title('Qsgen (mvar)')
+#plt.legend((plot_psgt[0], plot_psg[0],plot_psgmin[0], plot_psgmax[0]), ('Optimal', 'Initial','Min', 'Max'))
+plt.legend((plot_qsgt[0], plot_qsg[0]), ('Optimal', 'Initial'))
+plt.savefig(path_plt+'/Qsgen.png', dpi=400)  
