@@ -20,9 +20,12 @@ iter_max=1100
 alpha_ld=0.1# f=alpha*(pld-\hat{pld})^2
 alpha_g=0.1# f=alpha*(pg-\hat{pg})^2
 alpha_sg=0.1
-beta_ld=2# capacity of DER=rated value*beta
-beta_g=1.5# capacity of Generator=rated value*beta
-beta_sg=1.5
+beta_ld=2.5# capacity of DER=rated value*beta
+
+beta_pgmax=1# capacity of Generator=rated value*beta
+beta_pgmin=0# capacity of Generator=rated value*beta
+beta_qgmax=2.5
+beta_qgmin=-2.5
 
 
 # convert matpower case file version 2 to a pandapower net.
@@ -159,14 +162,13 @@ Xsgen=X[np.ix_(range(0,nLL),busid_sg_LL)]# update sgen
 
 
 # initialize controllable loads
-epsi_pld=0.05
-epsi_qld=0.05
+epsi_pld=0
+epsi_qld=0
 epsi_pg=0.05
 epsi_qg=0.05
 epsi_psg=0.05
 epsi_qsg=0.05
-# epsi_l=0.15
-epsi_l=0.2
+epsi_l=0.1
 
 v_l=0.95
 v_u=1.05
@@ -226,13 +228,14 @@ qll_g[busid_g_LL]=qg
 
 # capacity of Generator
 pll_g_max=np.zeros(nLL)
-pll_g_max[busid_g_LL]=abs(pg)*beta_g
+pll_g_max[busid_g_LL]=abs(pg)*beta_pgmax
 pll_g_min=np.zeros(nLL)
+pll_g_min[busid_g_LL]=abs(pg)*beta_pgmin
 
 qll_g_max=np.zeros(nLL)
-qll_g_max[busid_g_LL]=abs(qg)*beta_g
+qll_g_max[busid_g_LL]=abs(qg)*beta_qgmax
 qll_g_min=np.zeros(nLL)
-qll_g_min[busid_g_LL]=-abs(qg)*beta_g
+qll_g_min[busid_g_LL]=abs(qg)*beta_qgmin
 
 
 # initial values of sgen
@@ -244,15 +247,15 @@ psg=net.res_sgen.p_mw.to_numpy()/sbase
 qsg=net.res_sgen.q_mvar.to_numpy()/sbase
 
 # capacity of sGenerator
-psg_max=abs(psg)*beta_sg
+psg_max=abs(psg)*beta_pgmax
 psg_max[id_sgen_OutSer]=0#inactive generators which are out of service
-psg_min=np.zeros(nsgen)
+psg_min=abs(psg)*beta_pgmin
 psg_min[id_sgen_OutSer]=0#inactive generators which are out of service
 
 
-qsg_max=abs(qsg)*beta_sg
+qsg_max=abs(qsg)*beta_qgmax
 qsg_max[id_sgen_OutSer]=0#inactive generators which are out of service
-qsg_min=-abs(qsg)*beta_sg
+qsg_min=abs(qsg)*beta_qgmin
 qsg_min[id_sgen_OutSer]=0#inactive generators which are out of service
 
 # power flow solution
@@ -565,6 +568,9 @@ plt.savefig(path_plt+'/Qld.png', dpi=400)
 # plt.savefig(path_plt+'/QgenvsCapacity.png', dpi=400) 
 
 # combine gen with sgen
+pg_t=pll_g_t[busid_g_LL]
+qg_t=qll_g_t[busid_g_LL]
+
 pg_agr=np.concatenate((pg, psg))
 pgt_agr=np.concatenate((pg_t, psg_t))
 
