@@ -16,6 +16,12 @@ brh_fbus=np.array([3,4,1,3,3,2,3,3,5,6])
 brh_tbus=np.array([1,1,2,2,4,4,5,6,0,0])
 nbrh=len(brh_fbus)
 
+brh_y=np.zeros(nbrh,dtype=complex)
+# branch impedance
+for i in range(nbrh):
+    brh_y[i]=1/(1+1j)
+brh_z=1/brh_y
+
 busid_N=[0,1,2,3,4,5,6]
 busid_LL=[1,2,3,4,5,6]
 busid_slack=0
@@ -119,4 +125,87 @@ Bt=np.transpose(Btt)
 
 #brh_t=np.concatenate()
 nclp=nbrh-nLL
-B=np.concatenate((Bt,np.identity(nclp)), axis=1) 
+B0=np.concatenate((Bt,np.identity(nclp)), axis=1)  
+id_brh=np.concatenate((brh_t,brh_l))
+
+# re-ōrder column id back to [0,1,2,...,nbrh]
+B1=np.zeros((nclp,nbrh))
+for i in range(nbrh):
+    B1[:,id_brh[i]]=B0[:,i]
+    
+# B
+# conjuage of branch impedance matrix Zf
+B=np.matmul(B1,np.conjugate(np.diag(brh_z)))
+Af=np.concatenate((A,B), axis=0)
+Bf=np.linalg.inv(Af)
+Bfti=Bf[:,0:nLL]
+C=np.real(Bfti)
+D=np.imag(Bfti)
+
+# power flow model
+Ybrh=np.zeros((nbus,nbus),dtype=complex)
+for i in range(nbrh):
+    Ybrh[brh_fbus[i],brh_tbus[i]]=brh_y[i]
+    Ybrh[brh_tbus[i],brh_fbus[i]]=brh_y[i]
+    
+Y=-Ybrh
+for i in range(nbus):
+    Y[i,i]=-sum(Y[i,:])
+busid_LL=[1,2,3,4,5,6]
+YLL=Y[np.ix_(busid_LL,busid_LL)]
+Z_pu=np.linalg.inv(YLL)
+busid_slack=0
+YLS=Y[np.ix_(busid_LL,[busid_slack])]
+
+YY=np.matmul(Z_pu,YLS)
+vm0=0.93
+va0=np.exp(1j*0*np.pi/180)
+v0=vm0*va0
+
+vs=YY*v0
+vs=np.squeeze(np.asarray(vs))
+
+w=-vs
+
+vll=np.ones(nLL,dtype=complex)
+sll_net_t=1e-2*(-1-1j)*np.ones(nLL,dtype=complex)
+vll0=vll
+
+itr_pf=0
+itr_pf_max=20
+err_vll=1
+while (err_vll>1e-5 and itr_pf<itr_pf_max):
+    #vll=Z_pu*np.conj(sll_net_t/vll)+vs
+    ILL=np.conj(sll_net_t/vll)
+    dv=np.matmul(Z_pu,ILL.transpose())
+    vll=dv+w
+    err_vll=max(abs(vll-vll0))
+    vll0=vll
+    itr_pf=itr_pf+1
+           
+if err_vll>1e-3:
+    raise Exception('power flow diverge!\n')
+    
+# nonlinear complex power flow
+v_t=np.ones(nbus,dtype=complex)
+v_t[busid_slack]=v0
+v_t[busid_LL]=vll
+vf_t=v_t[brh_fbus]
+vt_t=v_t[brh_tbus]
+If_t=(vf_t-vt_t)*brh_y
+Sf_t=vf_t*np.conjugate(If_t)
+Pf_t=np.real(Sf_t)
+Qf_t=np.imag(Sf_t)
+
+# linear model
+# Pf==Cp-Dq
+# Qf=Dp+Cq
+Pi_t=np.real(sll_net_t)
+Qi_t=np.imag(sll_net_t)
+Pf_e=np.matmul(C,Pi_t)-np.matmul(D,Qi_t)
+Qf_e=np.matmul(D,Pi_t)+np.matmul(C,Qi_t)
+
+dpf=Pf_t-Pf_e
+dqf=Qf_t-Qf_e
+
+

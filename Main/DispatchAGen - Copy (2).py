@@ -17,8 +17,6 @@ import matplotlib.pyplot as plt
 
 from scipy.sparse.csgraph import minimum_spanning_tree
 
-import pandas as pd
-
 path_cur = Path(os.getcwd())
 path_par = path_cur.parent.absolute()
 path_plt = os.path.join(path_cur, 'Plot')
@@ -167,17 +165,6 @@ nbrh=len(net.trafo)+len(net.line)
 branch_tb=np.zeros((nbrh,2))
 brh_fbus=np.concatenate((net.line.from_bus.values,net.trafo.hv_bus.values))
 brh_tbus=np.concatenate((net.line.to_bus.values,net.trafo.lv_bus.values))
-brh_serv=pd.concat([net.line.in_service, net.trafo.in_service])
-id_brh_serv=np.where(brh_serv==True)[0]
-nbrh=len(id_brh_serv)
-brh_fbus=brh_fbus[id_brh_serv]
-brh_tbus=brh_tbus[id_brh_serv]
-
-brh_y=np.zeros(nbrh,dtype=complex)
-# branch impedance
-for i in range(nbrh):
-    brh_y[i]=Ybus[brh_fbus[i],brh_tbus[i]]
-brh_z=1/brh_y
 # branch_tb[:,0]=fbus
 # branch_tb[:,1]=tbus
 
@@ -269,25 +256,9 @@ Bt=np.transpose(Btt)
 
 #brh_t=np.concatenate()
 nclp=nbrh-nLL
-B0=np.concatenate((Bt,np.identity(nclp)), axis=1)  
-id_brh=np.concatenate((brh_t,brh_l))
+B=np.concatenate((Bt,np.identity(nclp)), axis=1)  
 
-# re-ōrder column id back to [0,1,2,...,nbrh]
-B1=np.zeros((nclp,nbrh))
-for i in range(nbrh):
-    B1[:,id_brh[i]]=B0[:,i]
-    
-# B
-# conjuage of branch impedance matrix Zf
-B=np.matmul(B1,np.conjugate(np.diag(brh_z)))
-Af=np.concatenate((A,B), axis=0)
-Bf=np.linalg.inv(Af)
-Bfti=Bf[:,0:nLL]
 
-C=np.real(Bfti)
-Ct=np.transpose(C)
-D=np.imag(Bfti)
-Dt=np.transpose(D)
 
 # # available load
 # pld=net.load.p_mw.to_numpy()
@@ -303,15 +274,10 @@ epsi_psg=0.05
 epsi_qsg=0.05
 epsi_l=0.1
 
-epsi_u=0.1
-
 v_l=0.95# bounds for opf
 v_u=1.05
 vplt_min=0.88# bounds for plot
 vplt_max=1.07
-
-Sfm_u=10
-Sfm_l=0
 
 
 # initial values of load 
@@ -437,14 +403,6 @@ class result:
         self.lambda_u=np.zeros(iter_max)
         self.lambda_d=np.zeros(iter_max)
 result1=result(iter_max)  
-
-# complex voltage of all the buses including slack bus
-v_t=np.ones(nbus,dtype=complex)
-
-Qfr=np.zeros(nbrh)
-Pfr=np.zeros(nbrh)
-u_u=np.zeros(nbrh)
-u_l=np.zeros(nbrh)
 for iter in range(iter_max):
     # derivative of voltage constraints with respect to (p, q)
     dvcnstr_dp=Rt.dot(lambda_u-lambda_d)
@@ -455,30 +413,17 @@ for iter in range(iter_max):
     dvcnstr_dsp=dvcnstr_dp[np.ix_(busid_sg_LL)]
     dvcnstr_dsq=dvcnstr_dq[np.ix_(busid_sg_LL)]
     
-    # derivative of apparent power flow with respect to (p_g,p_pv,p_battery,p_load)
-    Qfrdu=Qfr*(u_u-u_l)
-    Pfrdu=Pfr*(u_u-u_l)
-    
-    dsf_dp=Dt.dot(Qfrdu)+Ct.dot(Pfrdu)
-    dsf_dp=np.squeeze(np.array(dsf_dp))
-    dsf_dq=Ct.dot(Qfrdu)-Dt.dot(Pfrdu)
-    dsf_dq=np.squeeze(np.array(dsf_dq))
-    
-    dsf_dsp=dsf_dp[np.ix_(busid_sg_LL)]
-    dsf_dsq=dsf_dq[np.ix_(busid_sg_LL)]
-    
-    # each bus has at most 1 load and generator, but may have multiple static generators
     # minimize deviation from (pll_ld,qll_ld)
-    pll_ld_t=pll_ld_t-epsi_pld*(2*alpha_ld*(pll_ld_t-pll_ld)+dvcnstr_dp+dsf_dp)
-    qll_ld_t=qll_ld_t-epsi_qld*(2*alpha_ld*(qll_ld_t-qll_ld)+dvcnstr_dq+dsf_dq)
+    pll_ld_t=pll_ld_t-epsi_pld*(2*alpha_ld*(pll_ld_t-pll_ld)+dvcnstr_dp)
+    qll_ld_t=qll_ld_t-epsi_qld*(2*alpha_ld*(qll_ld_t-qll_ld)+dvcnstr_dq)
     
     # minimize generation from coal generator
-    pll_g_t=pll_g_t-epsi_pg*(2*alpha_g*(pll_g_t-pll_g)+dvcnstr_dp+dsf_dp)
-    qll_g_t=qll_g_t-epsi_qg*(2*alpha_g*(qll_g_t-qll_g)+dvcnstr_dq+dsf_dq)
+    pll_g_t=pll_g_t-epsi_pg*(2*alpha_g*(pll_g_t-pll_g)+dvcnstr_dp)
+    qll_g_t=qll_g_t-epsi_qg*(2*alpha_g*(qll_g_t-qll_g)+dvcnstr_dq)
     
     # minimize sgeneration from coal sgenerator 
-    psg_t=psg_t-epsi_psg*(2*alpha_sg*(psg_t-psg)+dvcnstr_dsp+dsf_dsp)
-    qsg_t=qsg_t-epsi_qsg*(2*alpha_sg*(qsg_t-qsg)+dvcnstr_dsq+dsf_dsq)
+    psg_t=psg_t-epsi_psg*(2*alpha_sg*(psg_t-psg)+dvcnstr_dsp)
+    qsg_t=qsg_t-epsi_qsg*(2*alpha_sg*(qsg_t-qsg)+dvcnstr_dsq)
     
     
     # project
@@ -506,7 +451,7 @@ for iter in range(iter_max):
     qll_net_t=qll_ld_t+qll_g_t+qll_sg_t 
     sll_net_t=pll_net_t+1j*qll_net_t
     
-    #pAg_net_t=pll_g_t+pll_sg_t# real power output of aggregated Generator
+    pAg_net_t=pll_g_t+pll_sg_t# real power output of aggregated Generator
     
 
     # fixed point iteration methods as the power flow solver
@@ -526,7 +471,7 @@ for iter in range(iter_max):
                
     if err_vll>1e-3:
         raise Exception('power flow diverge!\n')
-    
+
          
     # # dispatch load 
     # pld_t=pll_ld_t[busid_ld_LL]
@@ -582,7 +527,7 @@ for iter in range(iter_max):
     
     # vmll=net_t.res_bus.vm_pu.values[busid_LL]
     
-    # update dual variables (voltage)
+    # update dual variables
     vmll=abs(vll)
     lambda_u=lambda_u+epsi_l*(vmll-v_u)
     lambda_d=lambda_d+epsi_l*(v_l-vmll)
@@ -596,42 +541,6 @@ for iter in range(iter_max):
     result1.lambda_d[iter]=lambda_d.max()
     result1.vmax[iter]=vmll.max()
     result1.vmin[iter]=vmll.min()
-    
-    #update dual variable (apparent power flow)
-    # nonlinear complex power flow
-    v_t[busid_slack]=v0
-    v_t[busid_LL]=vll
-    vf_t=v_t[brh_fbus]
-    vt_t=v_t[brh_tbus]
-    If_t=(vf_t-vt_t)*brh_y
-    Sf_t=vf_t*np.conjugate(If_t)
-    
-    # # linear model: Pf==Cp-Dq, Qf=Dp+Cq
-    # Pi_t=np.real(sll_net_t)
-    # Qi_t=np.imag(sll_net_t)
-    # Pf_e=np.matmul(C,Pi_t)-np.matmul(D,Qi_t)
-    # Qf_e=np.matmul(D,Pi_t)+np.matmul(C,Qi_t)
-    
-    # dpf=np.real(Sf_t)-Pf_e
-    # dqf=np.imag(Sf_t)-Qf_e
-    
-    Sfm_t=abs(Sf_t)
-    Pfr=np.real(Sf_t)/Sfm_t
-    Qfr=np.imag(Sf_t)/Sfm_t
-    
-    # inactive small branch flow
-    id_sf0=np.where(Sfm_t<1e-7)
-    Pfr[id_sf0]=0
-    Qfr[id_sf0]=0
-    
-    # dual variable
-    u_u=u_u+epsi_u*(Sfm_t-Sfm_u)
-    u_l=u_l+epsi_u*(Sfm_l-Sfm_t)
-    
-    # project dual variables
-    u_u=np.maximum(u_u,0)
-    u_l=np.maximum(u_l,0)
-    
 iterations=list(range(iter_max))
 
 #path_plt = os.path.join(path_cur, 'Plot')
