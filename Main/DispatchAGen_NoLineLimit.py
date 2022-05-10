@@ -20,7 +20,7 @@ path_par = path_cur.parent.absolute()
 path_plt = os.path.join(path_cur, 'Plot')
 
 # parameter setting
-iter_max=110
+iter_max=1100
 alpha_ld=0.1# f=alpha*(pld-\hat{pld})^2
 alpha_g=0.1# f=alpha*(pg-\hat{pg})^2
 alpha_sg=0.1

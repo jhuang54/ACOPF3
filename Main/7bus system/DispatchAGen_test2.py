@@ -207,5 +207,5 @@ Qf_e=np.matmul(D,Pi_t)+np.matmul(C,Qi_t)
 
 dpf=Pf_t-Pf_e
 dqf=Qf_t-Qf_e
-
+Sfe_t=Pf_e+1j*Qf_e
 

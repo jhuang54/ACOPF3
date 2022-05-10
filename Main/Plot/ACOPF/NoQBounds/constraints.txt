@@ -1,0 +1,5 @@
+Lower and upper bounds of Pgen, Psgen are from PSSE
+Lower and upper bounds of switched shunts are from PSSE
+Qgen, Qsgen don't have bounds
+Upper bounds of apparent power flow are from PSSE, but project upper bounds not less than 5.53.
+epsi_u=0.001
