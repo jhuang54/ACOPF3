@@ -1,5 +1,5 @@
 # task: update generator and static generator, dispatch aggregated generators. All the generators on one bus are aggregated to one generator.
-# Pgen, Psgen>=0, Qsgen[-18:]>=Qsgen_min[-18], Qsgen[-18:]<=Qsgen_max[-18]; No other constraints
+# maximual values>=Pgen, Psgen>=minimual values, Qsgen[-18:]>=Qsgen_min[-18], Qsgen[-18:]<=Qsgen_max[-18]; No Qgen or Qsgen constraints
 # load is negative in linearized power flow model, but positive in net.load.p_mw, net.load.q_mvar
 # generation is positive in linearized power flow model, and positive in net.gen.p_mw, net.gen.q_mvar, net.sgen. p_mw,net.sgen.q_mvar
 # net.load.p_mw, net.load.q_mwar, net.gen.p_mw, net.gen.q_mvar, net.sgen. p_mw,net.sgen.q_mvar are real value with unit mw and mwar
@@ -27,7 +27,7 @@ path_par = path_cur.parent.absolute()
 path_plt = os.path.join(path_cur, 'Plot')
 
 # parameter setting
-iter_max=3000
+iter_max=50000
 alpha_ld=0.1# f=alpha*(pld-\hat{pld})^2
 alpha_g=0.1# f=alpha*(pg-\hat{pg})^2
 alpha_sg=0.1
@@ -43,9 +43,7 @@ beta_qgmin=-1.5
 # path_cur = Path(os.getcwd())
 # path_par = path_cur.parent.absolute()
 path_output = os.path.join(path_par, 'Matlab files\output file')
-##icase = 'Maui2022dm_rd_v33.mat'# convert switched shunts into generators, one transformer has phase shift
-#icase='Maui2022dm_rd_v33_SwitchShuntsNoPhaseshift'# convert switched shunts into generators, transformers don't have phase shift
-icase='Maui2022dm_rd_v33'
+icase = 'Maui2022dm_rd_v33.mat'
 net = pc.from_mpc(path_output + '\\' + icase, f_hz=60)# initial condition
 icase= 'Maui2022dm_rd_AggregateGens.mat'# physical system simulator
 net_t=pc.from_mpc(path_output + '\\' + icase, f_hz=60)
@@ -182,7 +180,15 @@ line_fbus=net.line.from_bus.values
 id_line_serv=np.where(net.line.in_service==True)[0]
 line_fbus=line_fbus[id_line_serv]
 vn_line_fbus=vn[line_fbus]
-
+# line current
+imax_line=net.line.max_i_ka.to_numpy()
+imax_line=imax_line[id_line_serv]
+Smax_line=np.sqrt(3)*vn_line_fbus*imax_line/sbase
+Smax_traf=net.trafo.sn_mva*(net.trafo.max_loading_percent/100)/sbase#net.trafo.max_loading_percent=100
+Smax_brh=np.concatenate((Smax_line,Smax_traf))
+Smax_brh[np.where(Smax_brh<4.7)]=4.7#works >=0.52;5.59 leads to active constraints, 0.001
+#Smax_brh[142]=5.6
+Smin_brh=0
 brh_y=np.zeros(nbrh,dtype=complex)
 # branch impedance
 for i in range(nbrh):
@@ -314,17 +320,14 @@ epsi_qsg=0.05
 # epsi_pg=0
 # epsi_qg=0
 # epsi_psg=0
-epsi_l=0.1
+epsi_l=0.001
 
-epsi_u=0.1
+epsi_u=0.0015#0.01 for np.min(Smax_brh)>=6, 0.001 for np.min(Smax_brh)>=5.58
 
-v_l=0.95# bounds for opf
-v_u=1.05
-vplt_min=0.88# bounds for plot
-vplt_max=1.07
-
-Sfm_u=10
-Sfm_l=0
+v_l=0.8# bounds for opf
+v_u=1.1
+vplt_min=v_l*0.9# bounds for plot
+vplt_max=v_u*1.1
 
 
 # initial values of load 
@@ -424,7 +427,7 @@ vll=v[busid_LL]
 
 vmll0=vm[busid_LL]
 
-# iplt=1
+iplt=0
 # plt.figure(iplt)
 # plot_vm=plt.plot(vmll,'.')
 # plot_ub=plt.plot([v_u]*nLL,'--',linewidth=1)
@@ -446,6 +449,9 @@ sll_net_t=S[busid_LL]
 lambda_u=np.zeros(nLL)
 lambda_d=np.zeros(nLL)
 
+u_u=np.zeros(nbrh)
+u_l=np.zeros(nbrh)
+
 vll0=vll
 
 
@@ -455,12 +461,6 @@ class result:
         self.vmin=np.full((iter_max,1),0.95)
         self.lambda_u=np.zeros(iter_max)
         self.lambda_d=np.zeros(iter_max)
-        self.dSfm_t=np.zeros((iter_max,nbrh))
-        self.dSfmp_t=np.zeros((iter_max,nbrh))
-        self.dPfm_t=np.zeros((iter_max,nbrh))
-        self.dPfmp_t=np.zeros((iter_max,nbrh))
-        self.dQfm_t=np.zeros((iter_max,nbrh))
-        self.dQfmp_t=np.zeros((iter_max,nbrh))
 result1=result(iter_max)  
 
 # complex voltage of all the buses including slack bus
@@ -468,8 +468,9 @@ v_t=np.ones(nbus,dtype=complex)
 
 Qfr=np.zeros(nbrh)
 Pfr=np.zeros(nbrh)
-u_u=np.zeros(nbrh)
-u_l=np.zeros(nbrh)
+
+result1.u_u=np.zeros(iter_max)
+result1.u_l=np.zeros(iter_max)
 for iter in range(iter_max):
     # derivative of voltage constraints with respect to (p, q)
     dvcnstr_dp=Rt.dot(lambda_u-lambda_d)
@@ -513,14 +514,14 @@ for iter in range(iter_max):
     # qll_ld_t=np.minimum(qll_ld_t,qll_ld_max)
     
     pll_g_t=np.maximum(pll_g_t,pll_g_min)
-    # pll_g_t=np.minimum(pll_g_t,pll_g_max)
+    pll_g_t=np.minimum(pll_g_t,pll_g_max)
     # qll_g_t=np.maximum(qll_g_t,qll_g_min)
     # qll_g_t=np.minimum(qll_g_t,qll_g_max)
     
     psg_t=np.maximum(psg_t,psg_min)
-    # psg_t=np.minimum(psg_t,psg_max)
-    qsg_t[-18:]=np.maximum(qsg_t[-18:],qsg_min[-18:])
-    qsg_t[-18:]=np.minimum(qsg_t[-18:],qsg_max[-18:])
+    psg_t=np.minimum(psg_t,psg_max)
+    qsg_t[-18:]=np.maximum(qsg_t[-18:],qsg_min[-18:])# only project switched shunts
+    qsg_t[-18:]=np.minimum(qsg_t[-18:],qsg_max[-18:])# only project switched shunts
     
     # sgen to sll
     pll_sg_t=np.matmul(sgen_to_LL,psg_t)
@@ -549,8 +550,8 @@ for iter in range(iter_max):
         vll0=vll
         itr_pf=itr_pf+1
                
-    if err_vll>1e-3:
-        raise Exception('power flow diverge!\n')
+    # if err_vll>1e-3:
+    #     raise Exception('power flow diverge!\n')
     
          
     # # dispatch load 
@@ -619,21 +620,19 @@ for iter in range(iter_max):
     # track voltage and dual
     result1.lambda_u[iter]=lambda_u.max()
     result1.lambda_d[iter]=lambda_d.max()
+    result1.u_u[iter]=u_u.max()
+    result1.u_l[iter]=u_l.max()
     result1.vmax[iter]=vmll.max()
     result1.vmin[iter]=vmll.min()
     
     #update dual variable (apparent power flow)
     # nonlinear complex power flow
-    # v_t[busid_slack]=v0
-    # v_t[busid_LL]=vll
-    # vf_t=v_t[brh_fbus]
-    # vt_t=v_t[brh_tbus]
-    # If_t=(vf_t-vt_t)*brh_y
-    # Sf_t=vf_t*np.conjugate(If_t)
-    SfLine_t=net.res_line.p_from_mw.to_numpy()+1j*net.res_line.q_from_mvar.to_numpy()
-    SfTran_t=net.res_trafo.p_hv_mw.to_numpy()+1j*net.res_trafo.q_hv_mvar.to_numpy()
-    Sf_t=np.concatenate((SfLine_t,SfTran_t))
-    Sf_t=Sf_t[id_brh_serv]/sbase
+    v_t[busid_slack]=v0
+    v_t[busid_LL]=vll
+    vf_t=v_t[brh_fbus]
+    vt_t=v_t[brh_tbus]
+    If_t=(vf_t-vt_t)*brh_y
+    Sf_t=vf_t*np.conjugate(If_t)
     
     # # linear model: Pf==Cp-Dq, Qf=Dp+Cq
     # Pi_t=np.real(sll_net_t)
@@ -643,78 +642,29 @@ for iter in range(iter_max):
     
     # dpf=np.real(Sf_t)-Pf_e
     # dqf=np.imag(Sf_t)-Qf_e
-    Pf_t=np.real(Sf_t)
-    Qf_t=np.imag(Sf_t)
+    
     Sfm_t=abs(Sf_t)
-    # Pfr=np.real(Sf_t)/Sfm_t
-    # Qfr=np.imag(Sf_t)/Sfm_t
+    Pfr=np.real(Sf_t)/Sfm_t
+    Qfr=np.imag(Sf_t)/Sfm_t
     
-    # # inactive small branch flow
-    # id_sf0=np.where(Sfm_t<1e-7)
-    # Pfr[id_sf0]=0
-    # Qfr[id_sf0]=0
+    # inactive small branch flow
+    id_sf0=np.where(Sfm_t<1e-7)
+    Pfr[id_sf0]=0
+    Qfr[id_sf0]=0
     
-    # # dual variable
-    # u_u=u_u+epsi_u*(Sfm_t-Sfm_u)
-    # u_l=u_l+epsi_u*(Sfm_l-Sfm_t)
+    # dual variable
+    u_u=u_u+epsi_u*(Sfm_t-Smax_brh)
+    #u_l=u_l+epsi_u*(Smin_brh-Sfm_t)
     
-    # # project dual variables
-    # u_u=np.maximum(u_u,0)
-    # u_l=np.maximum(u_l,0)
+    # project dual variables
+    u_u=np.maximum(u_u,0)
+    #u_l=np.maximum(u_l,0)   
     
-    # accuracy
-    
-    Pi_t=np.real(sll_net_t)
-    Qi_t=np.imag(sll_net_t)
-    #Sfe_t=(C.dot(Pi_t)-D.dot(Qi_t))+1j*(D.dot(Pi_t)+C.dot(Qi_t))  
-    Pf_e=np.matmul(C,Pi_t)-np.matmul(D,Qi_t)
-    Qf_e=np.matmul(D,Pi_t)+np.matmul(C,Qi_t)
-    Sfe_t=Pf_e+1j*Qf_e
-    
-    result1.dSfm_t[iter,:]=abs(Sfm_t-abs(Sfe_t))
-    id_inac=np.where(Sfm_t<1e-4)
-    result1.dSfmp_t[iter,:]=result1.dSfm_t[iter,:]/Sfm_t
-    result1.dSfmp_t[iter,id_inac]=0
-    result1.dPfm_t[iter,:]=abs(Pf_t-Pf_e)
-    result1.dPfmp_t[iter,:]=abs(Pf_t-Pf_e)/abs(Pf_t)*100
-    id_inac=np.where(abs(Pf_t)<1e-4)
-    result1.dPfm_t[iter,id_inac]=0
-    result1.dPfmp_t[iter,id_inac]=0
-    result1.dQfm_t[iter,:]=abs(Qf_t-Qf_e)
-    result1.dQfmp_t[iter,:]=abs(Qf_t-Qf_e)/abs(Qf_t)*100
-    id_inac=np.where(abs(Qf_t)<1e-4)
-    result1.dQfm_t[iter,id_inac]=0
-    result1.dQfmp_t[iter,id_inac]=0
-    plt.figure(1)
-    plt.plot(result1.dPfm_t[iter,:]*sbase)
-    plt.title('Absolute error of Pfm')
-    plt.xlabel('Branch id')
-    plt.ylabel('Error (Mw)')
-    plt.grid(True)
-    plt.savefig(path_plt+'/AbsErr_Pfm.png', dpi=400) 
-    plt.figure(2)
-    plt.plot(result1.dPfmp_t[iter,:])
-    plt.title('Relative error of Pfm')
-    plt.xlabel('Branch id')
-    plt.ylabel('%')
-    plt.grid(True)
-    plt.savefig(path_plt+'/ResErr_Pfm.png', dpi=400) 
-    plt.figure(3)
-    plt.plot(result1.dQfm_t[iter,:]*sbase)
-    plt.title('Absolute error of QPm')
-    plt.xlabel('Branch id')
-    plt.ylabel('Error (Mvar)')
-    plt.grid(True)
-    plt.savefig(path_plt+'/AbsErr_Qfm.png', dpi=400) 
-    plt.figure(4)
-    plt.plot(result1.dQfmp_t[iter,:])
-    plt.title('Relative error of Qfm')
-    plt.xlabel('Branch id')
-    plt.ylabel('%')
-    plt.grid(True)
-    plt.savefig(path_plt+'/ResErr_Qfm.png', dpi=400) 
-    1
+    result1.u_u[iter]=u_u.max()
+    #result1.u_l[iter]=u_l.max()
 iterations=list(range(iter_max))
+
+print('Mismatch:',err_vll)
 
 #path_plt = os.path.join(path_cur, 'Plot')
 iplt+=1
@@ -740,6 +690,19 @@ plt.grid(True)
 plt.savefig(path_plt+'/lambda.png', dpi=400)    
 
 
+iplt+=1
+plt.figure(iplt)    
+plot_u_u=plt.plot(iterations, result1.u_u,linestyle='--',color='red')
+#plot_u_d=plt.plot(iterations, result1.u_l,linestyle='--',color='blue')
+#plt.legend((plot_u_u[0], plot_u_d[0]), ('u up', 'u lower'))
+#plt.legend(plot_u_u[0], 'u up')
+plt.xlabel('Iteration No.')
+plt.ylabel('u')
+plt.title('u')
+plt.grid(True)
+plt.savefig(path_plt+'/u.png', dpi=400)   
+
+
 # DER optimal vs intial (p,q)
 iplt+=1
 plt.figure(iplt) 
@@ -747,6 +710,7 @@ plot_pldt=plt.plot(-pld_t,'.')
 plot_pld=plt.plot(-pld,'.')
 plt.title('real load (mw)')
 plt.legend((plot_pldt[0], plot_pld[0]), ('Optimal', 'Initial'))
+plt.grid(True)
 plt.savefig(path_plt+'/Pld.png', dpi=400)  
 
 iplt+=1
@@ -755,6 +719,7 @@ plot_qldt=plt.plot(-qld_t,'.')
 plot_qld=plt.plot(-qld,'*')
 plt.title('reactive load (mvar)')
 plt.legend((plot_qldt[0], plot_qld[0]), ('Optimal', 'Initial'))
+plt.grid(True)
 plt.savefig(path_plt+'/Qld.png', dpi=400)  
 
 # plt.figure(5)
@@ -810,6 +775,7 @@ plot_pgt=plt.plot(pg_t,'.')
 plt.title('Pgen (mw)')
 #plt.legend((plot_psgt[0], plot_psg[0],plot_psgmin[0], plot_psgmax[0]), ('Optimal', 'Initial','Min', 'Max'))
 plt.legend((plot_pgt[0], plot_pg[0]), ('Optimal', 'Initial'))
+plt.grid(True)
 plt.savefig(path_plt+'/Pgen.png', dpi=400)  
 
 # plt.figure(6)
@@ -824,11 +790,13 @@ iplt+=1
 plt.figure(iplt) 
 plot_qg=plt.plot(qg,'.')
 plot_qgt=plt.plot(qg_t,'.')
-plot_ub=plt.plot(qll_g_max[busid_g_LL],linewidth=1)
-plot_lb=plt.plot(qll_g_min[busid_g_LL],linewidth=1)
+# plot_ub=plt.plot(qll_g_max[busid_g_LL],linewidth=1)
+# plot_lb=plt.plot(qll_g_min[busid_g_LL],linewidth=1)
 plt.title('Qgen (mvar)')
 #plt.legend((plot_psgt[0], plot_psg[0],plot_psgmin[0], plot_psgmax[0]), ('Optimal', 'Initial','Min', 'Max'))
-plt.legend((plot_qgt[0], plot_qg[0],plot_lb[0],plot_ub[0]), ('Optimal', 'Initial','Lower Bound','Upper Bound'))
+#plt.legend((plot_qgt[0], plot_qg[0],plot_lb[0],plot_ub[0]), ('Optimal', 'Initial','Lower Bound','Upper Bound'))
+plt.legend((plot_qgt[0], plot_qg[0]), ('Optimal', 'Initial'))
+plt.grid(True)
 plt.savefig(path_plt+'/Qgen.png', dpi=400)  
 
 
@@ -844,17 +812,20 @@ plot_psgt=plt.plot(psg_t,'.')
 plt.title('Psgen (mw)')
 #plt.legend((plot_psgt[0], plot_psg[0],plot_psgmin[0], plot_psgmax[0]), ('Optimal', 'Initial','Min', 'Max'))
 plt.legend((plot_psgt[0], plot_psg[0]), ('Optimal', 'Initial'))
+plt.grid(True)
 plt.savefig(path_plt+'/Psgen.png', dpi=400)  
 
 iplt+=1
 plt.figure(iplt) 
 plot_qsg=plt.plot(qsg,'.')
 plot_qsgt=plt.plot(qsg_t,'.')
-plot_ub=plt.plot(qsg_max,linewidth=1)
-plot_lb=plt.plot(qsg_min,linewidth=1)
+# plot_ub=plt.plot(qsg_max,linewidth=1)
+# plot_lb=plt.plot(qsg_min,linewidth=1)
 plt.title('Qsgen (mvar)')
 #plt.legend((plot_psgt[0], plot_psg[0],plot_psgmin[0], plot_psgmax[0]), ('Optimal', 'Initial','Min', 'Max'))
-plt.legend((plot_qsgt[0], plot_qsg[0],plot_lb[0],plot_ub[0]), ('Optimal', 'Initial','Lower Bound','Upper Bound'))
+#plt.legend((plot_qsgt[0], plot_qsg[0],plot_lb[0],plot_ub[0]), ('Optimal', 'Initial','Lower Bound','Upper Bound'))
+plt.legend((plot_qsgt[0], plot_qsg[0]), ('Optimal', 'Initial'))
+plt.grid(True)
 plt.savefig(path_plt+'/Qsgen.png', dpi=400)  
 
 iplt+=1
@@ -866,4 +837,5 @@ plot_lb=plt.plot([v_l]*nLL,'--',linewidth=1)
 plt.ylim(vplt_min, vplt_max)
 plt.title('v (p.u.)')
 plt.legend(['Optimal', 'Initial','upper','lower'])
+plt.grid(True)
 plt.savefig(path_plt+'/VProfile.png', dpi=400) 

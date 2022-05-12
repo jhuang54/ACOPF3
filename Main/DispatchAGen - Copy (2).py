@@ -1,5 +1,4 @@
-# task: update generator and static generator, dispatch aggregated generators. All the generators on one bus are aggregated to one generator.
-# Pgen, Psgen>=0, Qsgen[-18:]>=Qsgen_min[-18], Qsgen[-18:]<=Qsgen_max[-18]; No other constraints
+# task: update load, generator and static generator, dispatch aggregated generators. All the generators on one bus are aggregated to one generator.
 # load is negative in linearized power flow model, but positive in net.load.p_mw, net.load.q_mvar
 # generation is positive in linearized power flow model, and positive in net.gen.p_mw, net.gen.q_mvar, net.sgen. p_mw,net.sgen.q_mvar
 # net.load.p_mw, net.load.q_mwar, net.gen.p_mw, net.gen.q_mvar, net.sgen. p_mw,net.sgen.q_mvar are real value with unit mw and mwar
@@ -18,16 +17,12 @@ import matplotlib.pyplot as plt
 
 from scipy.sparse.csgraph import minimum_spanning_tree
 
-import pandas as pd
-
-import numpy as np
-
 path_cur = Path(os.getcwd())
 path_par = path_cur.parent.absolute()
 path_plt = os.path.join(path_cur, 'Plot')
 
 # parameter setting
-iter_max=3000
+iter_max=1100
 alpha_ld=0.1# f=alpha*(pld-\hat{pld})^2
 alpha_g=0.1# f=alpha*(pg-\hat{pg})^2
 alpha_sg=0.1
@@ -43,9 +38,7 @@ beta_qgmin=-1.5
 # path_cur = Path(os.getcwd())
 # path_par = path_cur.parent.absolute()
 path_output = os.path.join(path_par, 'Matlab files\output file')
-##icase = 'Maui2022dm_rd_v33.mat'# convert switched shunts into generators, one transformer has phase shift
-#icase='Maui2022dm_rd_v33_SwitchShuntsNoPhaseshift'# convert switched shunts into generators, transformers don't have phase shift
-icase='Maui2022dm_rd_v33'
+icase = 'Maui2022dm_rd_v33.mat'
 net = pc.from_mpc(path_output + '\\' + icase, f_hz=60)# initial condition
 icase= 'Maui2022dm_rd_AggregateGens.mat'# physical system simulator
 net_t=pc.from_mpc(path_output + '\\' + icase, f_hz=60)
@@ -62,6 +55,8 @@ pp.runpp(net, algorithm='nr', calculate_voltage_angles=True)
 
 # Ybus
 Ybus = net._ppc['internal']['Ybus']
+
+import numpy as np
 
 # # power flow solution
 vm = net.res_bus.vm_pu.values
@@ -170,24 +165,6 @@ nbrh=len(net.trafo)+len(net.line)
 branch_tb=np.zeros((nbrh,2))
 brh_fbus=np.concatenate((net.line.from_bus.values,net.trafo.hv_bus.values))
 brh_tbus=np.concatenate((net.line.to_bus.values,net.trafo.lv_bus.values))
-brh_serv=pd.concat([net.line.in_service, net.trafo.in_service])
-id_brh_serv=np.where(brh_serv==True)[0]
-nbrh=len(id_brh_serv)
-brh_fbus=brh_fbus[id_brh_serv]
-brh_tbus=brh_tbus[id_brh_serv]
-
-# bus voltage 
-vn=net.bus.vn_kv.to_numpy()
-line_fbus=net.line.from_bus.values
-id_line_serv=np.where(net.line.in_service==True)[0]
-line_fbus=line_fbus[id_line_serv]
-vn_line_fbus=vn[line_fbus]
-
-brh_y=np.zeros(nbrh,dtype=complex)
-# branch impedance
-for i in range(nbrh):
-    brh_y[i]=-Ybus[brh_fbus[i],brh_tbus[i]]
-brh_z=1/brh_y
 # branch_tb[:,0]=fbus
 # branch_tb[:,1]=tbus
 
@@ -279,25 +256,9 @@ Bt=np.transpose(Btt)
 
 #brh_t=np.concatenate()
 nclp=nbrh-nLL
-B0=np.concatenate((Bt,np.identity(nclp)), axis=1)  
-id_brh=np.concatenate((brh_t,brh_l))
+B=np.concatenate((Bt,np.identity(nclp)), axis=1)  
 
-# re-ōrder column id back to [0,1,2,...,nbrh]
-B1=np.zeros((nclp,nbrh))
-for i in range(nbrh):
-    B1[:,id_brh[i]]=B0[:,i]
-    
-# B
-# conjuage of branch impedance matrix Zf
-B=np.matmul(B1,np.conjugate(np.diag(brh_z)))
-Af=np.concatenate((A,B), axis=0)
-Bf=np.linalg.inv(Af)
-Bfti=Bf[:,0:nLL]
 
-C=np.real(Bfti)
-Ct=np.transpose(C)
-D=np.imag(Bfti)
-Dt=np.transpose(D)
 
 # # available load
 # pld=net.load.p_mw.to_numpy()
@@ -311,20 +272,12 @@ epsi_pg=0.05
 epsi_qg=0.05
 epsi_psg=0.05
 epsi_qsg=0.05
-# epsi_pg=0
-# epsi_qg=0
-# epsi_psg=0
 epsi_l=0.1
-
-epsi_u=0.1
 
 v_l=0.95# bounds for opf
 v_u=1.05
 vplt_min=0.88# bounds for plot
 vplt_max=1.07
-
-Sfm_u=10
-Sfm_l=0
 
 
 # initial values of load 
@@ -382,38 +335,34 @@ qll_g[busid_g_LL]=qg
 
 # capacity of Generator
 pll_g_max=np.zeros(nLL)
-pll_g_max[busid_g_LL]=net.gen.max_p_mw.to_numpy()/sbase
+pll_g_max[busid_g_LL]=abs(pg)*beta_pgmax
 pll_g_min=np.zeros(nLL)
-pll_g_min[busid_g_LL]=net.gen.min_p_mw.to_numpy()/sbase
+pll_g_min[busid_g_LL]=abs(pg)*beta_pgmin
 
 qll_g_max=np.zeros(nLL)
-qll_g_max[busid_g_LL]=net.gen.max_q_mvar.to_numpy()/sbase
+qll_g_max[busid_g_LL]=abs(qg)*beta_qgmax
 qll_g_min=np.zeros(nLL)
-qll_g_min[busid_g_LL]=net.gen.min_q_mvar.to_numpy()/sbase
+qll_g_min[busid_g_LL]=abs(qg)*beta_qgmin
 
 
 # initial values of sgen
 psg_t=net.res_sgen.p_mw.to_numpy()/sbase
 qsg_t=net.res_sgen.q_mvar.to_numpy()/sbase
-nsg=len(qsg_t)
-# epsi_qsg=np.zeros(nsg)
-# epsi_qsg[-18:]=0.05
 
 # desired values of sgen
 psg=net.res_sgen.p_mw.to_numpy()/sbase
 qsg=net.res_sgen.q_mvar.to_numpy()/sbase
 
 # capacity of sGenerator
-psg_max=net.sgen.max_p_mw.to_numpy()/sbase
+psg_max=abs(psg)*beta_pgmax
 psg_max[id_sgen_OutSer]=0#inactive generators which are out of service
-psg_min=net.sgen.min_p_mw.to_numpy()/sbase
+psg_min=abs(psg)*beta_pgmin
 psg_min[id_sgen_OutSer]=0#inactive generators which are out of service
 
 
-qsg_max=net.sgen.max_q_mvar.to_numpy()/sbase
+qsg_max=abs(qsg)*beta_qgmax
 qsg_max[id_sgen_OutSer]=0#inactive generators which are out of service
-qsg_min=net.sgen.min_q_mvar.to_numpy()/sbase
-#qsg_min[-18:]=-net.sgen.max_q_mvar.to_numpy()[-18:]/sbase
+qsg_min=abs(qsg)*beta_qgmin
 qsg_min[id_sgen_OutSer]=0#inactive generators which are out of service
 
 
@@ -422,16 +371,14 @@ vmll=vm[busid_LL]
 vall=va[busid_LL]
 vll=v[busid_LL]
 
-vmll0=vm[busid_LL]
-
-# iplt=1
-# plt.figure(iplt)
-# plot_vm=plt.plot(vmll,'.')
-# plot_ub=plt.plot([v_u]*nLL,'--',linewidth=1)
-# plot_lb=plt.plot([v_l]*nLL,'--',linewidth=1)
-# plt.ylim(vplt_min, vplt_max)
-# plt.title('v (p.u.)')
-# plt.savefig(path_plt+'/VProfile0.png', dpi=400) 
+iplt=1
+plt.figure(iplt)
+plot_vm=plt.plot(vmll,'.')
+plot_ub=plt.plot([v_u]*nLL,'--',linewidth=1)
+plot_lb=plt.plot([v_l]*nLL,'--',linewidth=1)
+plt.ylim(vplt_min, vplt_max)
+plt.title('v (p.u.)')
+plt.savefig(path_plt+'/VProfile0.png', dpi=400) 
 
 print('max v:',vmll.max())
 print('min v:',vmll.min())
@@ -455,21 +402,7 @@ class result:
         self.vmin=np.full((iter_max,1),0.95)
         self.lambda_u=np.zeros(iter_max)
         self.lambda_d=np.zeros(iter_max)
-        self.dSfm_t=np.zeros((iter_max,nbrh))
-        self.dSfmp_t=np.zeros((iter_max,nbrh))
-        self.dPfm_t=np.zeros((iter_max,nbrh))
-        self.dPfmp_t=np.zeros((iter_max,nbrh))
-        self.dQfm_t=np.zeros((iter_max,nbrh))
-        self.dQfmp_t=np.zeros((iter_max,nbrh))
 result1=result(iter_max)  
-
-# complex voltage of all the buses including slack bus
-v_t=np.ones(nbus,dtype=complex)
-
-Qfr=np.zeros(nbrh)
-Pfr=np.zeros(nbrh)
-u_u=np.zeros(nbrh)
-u_l=np.zeros(nbrh)
 for iter in range(iter_max):
     # derivative of voltage constraints with respect to (p, q)
     dvcnstr_dp=Rt.dot(lambda_u-lambda_d)
@@ -480,47 +413,34 @@ for iter in range(iter_max):
     dvcnstr_dsp=dvcnstr_dp[np.ix_(busid_sg_LL)]
     dvcnstr_dsq=dvcnstr_dq[np.ix_(busid_sg_LL)]
     
-    # derivative of apparent power flow with respect to (p_g,p_pv,p_battery,p_load)
-    Qfrdu=Qfr*(u_u-u_l)
-    Pfrdu=Pfr*(u_u-u_l)
-    
-    dsf_dp=Dt.dot(Qfrdu)+Ct.dot(Pfrdu)
-    dsf_dp=np.squeeze(np.array(dsf_dp))
-    dsf_dq=Ct.dot(Qfrdu)-Dt.dot(Pfrdu)
-    dsf_dq=np.squeeze(np.array(dsf_dq))
-    
-    dsf_dsp=dsf_dp[np.ix_(busid_sg_LL)]
-    dsf_dsq=dsf_dq[np.ix_(busid_sg_LL)]
-    
-    # each bus has at most 1 load and generator, but may have multiple static generators
     # minimize deviation from (pll_ld,qll_ld)
-    pll_ld_t=pll_ld_t-epsi_pld*(2*alpha_ld*(pll_ld_t-pll_ld)+dvcnstr_dp+dsf_dp)
-    qll_ld_t=qll_ld_t-epsi_qld*(2*alpha_ld*(qll_ld_t-qll_ld)+dvcnstr_dq+dsf_dq)
+    pll_ld_t=pll_ld_t-epsi_pld*(2*alpha_ld*(pll_ld_t-pll_ld)+dvcnstr_dp)
+    qll_ld_t=qll_ld_t-epsi_qld*(2*alpha_ld*(qll_ld_t-qll_ld)+dvcnstr_dq)
     
     # minimize generation from coal generator
-    pll_g_t=pll_g_t-epsi_pg*(2*alpha_g*(pll_g_t-pll_g)+dvcnstr_dp+dsf_dp)
-    qll_g_t=qll_g_t-epsi_qg*(2*alpha_g*(qll_g_t-qll_g)+dvcnstr_dq+dsf_dq)
+    pll_g_t=pll_g_t-epsi_pg*(2*alpha_g*(pll_g_t-pll_g)+dvcnstr_dp)
+    qll_g_t=qll_g_t-epsi_qg*(2*alpha_g*(qll_g_t-qll_g)+dvcnstr_dq)
     
     # minimize sgeneration from coal sgenerator 
-    psg_t=psg_t-epsi_psg*(2*alpha_sg*(psg_t-psg)+dvcnstr_dsp+dsf_dsp)
-    qsg_t=qsg_t-epsi_qsg*(2*alpha_sg*(qsg_t-qsg)+dvcnstr_dsq+dsf_dsq)
+    psg_t=psg_t-epsi_psg*(2*alpha_sg*(psg_t-psg)+dvcnstr_dsp)
+    qsg_t=qsg_t-epsi_qsg*(2*alpha_sg*(qsg_t-qsg)+dvcnstr_dsq)
     
     
     # project
-    # pll_ld_t=np.maximum(pll_ld_t,pll_ld_min)
-    # pll_ld_t=np.minimum(pll_ld_t,pll_ld_max)
-    # qll_ld_t=np.maximum(qll_ld_t,qll_ld_min)
-    # qll_ld_t=np.minimum(qll_ld_t,qll_ld_max)
+    pll_ld_t=np.maximum(pll_ld_t,pll_ld_min)
+    pll_ld_t=np.minimum(pll_ld_t,pll_ld_max)
+    qll_ld_t=np.maximum(qll_ld_t,qll_ld_min)
+    qll_ld_t=np.minimum(qll_ld_t,qll_ld_max)
     
     pll_g_t=np.maximum(pll_g_t,pll_g_min)
-    # pll_g_t=np.minimum(pll_g_t,pll_g_max)
-    # qll_g_t=np.maximum(qll_g_t,qll_g_min)
-    # qll_g_t=np.minimum(qll_g_t,qll_g_max)
+    pll_g_t=np.minimum(pll_g_t,pll_g_max)
+    qll_g_t=np.maximum(qll_g_t,qll_g_min)
+    qll_g_t=np.minimum(qll_g_t,qll_g_max)
     
     psg_t=np.maximum(psg_t,psg_min)
-    # psg_t=np.minimum(psg_t,psg_max)
-    qsg_t[-18:]=np.maximum(qsg_t[-18:],qsg_min[-18:])
-    qsg_t[-18:]=np.minimum(qsg_t[-18:],qsg_max[-18:])
+    psg_t=np.minimum(psg_t,psg_max)
+    qsg_t=np.maximum(qsg_t,qsg_min)
+    qsg_t=np.minimum(qsg_t,qsg_max)
     
     # sgen to sll
     pll_sg_t=np.matmul(sgen_to_LL,psg_t)
@@ -531,7 +451,7 @@ for iter in range(iter_max):
     qll_net_t=qll_ld_t+qll_g_t+qll_sg_t 
     sll_net_t=pll_net_t+1j*qll_net_t
     
-    #pAg_net_t=pll_g_t+pll_sg_t# real power output of aggregated Generator
+    pAg_net_t=pll_g_t+pll_sg_t# real power output of aggregated Generator
     
 
     # fixed point iteration methods as the power flow solver
@@ -551,7 +471,7 @@ for iter in range(iter_max):
                
     if err_vll>1e-3:
         raise Exception('power flow diverge!\n')
-    
+
          
     # # dispatch load 
     # pld_t=pll_ld_t[busid_ld_LL]
@@ -607,7 +527,7 @@ for iter in range(iter_max):
     
     # vmll=net_t.res_bus.vm_pu.values[busid_LL]
     
-    # update dual variables (voltage)
+    # update dual variables
     vmll=abs(vll)
     lambda_u=lambda_u+epsi_l*(vmll-v_u)
     lambda_d=lambda_d+epsi_l*(v_l-vmll)
@@ -621,99 +541,6 @@ for iter in range(iter_max):
     result1.lambda_d[iter]=lambda_d.max()
     result1.vmax[iter]=vmll.max()
     result1.vmin[iter]=vmll.min()
-    
-    #update dual variable (apparent power flow)
-    # nonlinear complex power flow
-    # v_t[busid_slack]=v0
-    # v_t[busid_LL]=vll
-    # vf_t=v_t[brh_fbus]
-    # vt_t=v_t[brh_tbus]
-    # If_t=(vf_t-vt_t)*brh_y
-    # Sf_t=vf_t*np.conjugate(If_t)
-    SfLine_t=net.res_line.p_from_mw.to_numpy()+1j*net.res_line.q_from_mvar.to_numpy()
-    SfTran_t=net.res_trafo.p_hv_mw.to_numpy()+1j*net.res_trafo.q_hv_mvar.to_numpy()
-    Sf_t=np.concatenate((SfLine_t,SfTran_t))
-    Sf_t=Sf_t[id_brh_serv]/sbase
-    
-    # # linear model: Pf==Cp-Dq, Qf=Dp+Cq
-    # Pi_t=np.real(sll_net_t)
-    # Qi_t=np.imag(sll_net_t)
-    # Pf_e=np.matmul(C,Pi_t)-np.matmul(D,Qi_t)
-    # Qf_e=np.matmul(D,Pi_t)+np.matmul(C,Qi_t)
-    
-    # dpf=np.real(Sf_t)-Pf_e
-    # dqf=np.imag(Sf_t)-Qf_e
-    Pf_t=np.real(Sf_t)
-    Qf_t=np.imag(Sf_t)
-    Sfm_t=abs(Sf_t)
-    # Pfr=np.real(Sf_t)/Sfm_t
-    # Qfr=np.imag(Sf_t)/Sfm_t
-    
-    # # inactive small branch flow
-    # id_sf0=np.where(Sfm_t<1e-7)
-    # Pfr[id_sf0]=0
-    # Qfr[id_sf0]=0
-    
-    # # dual variable
-    # u_u=u_u+epsi_u*(Sfm_t-Sfm_u)
-    # u_l=u_l+epsi_u*(Sfm_l-Sfm_t)
-    
-    # # project dual variables
-    # u_u=np.maximum(u_u,0)
-    # u_l=np.maximum(u_l,0)
-    
-    # accuracy
-    
-    Pi_t=np.real(sll_net_t)
-    Qi_t=np.imag(sll_net_t)
-    #Sfe_t=(C.dot(Pi_t)-D.dot(Qi_t))+1j*(D.dot(Pi_t)+C.dot(Qi_t))  
-    Pf_e=np.matmul(C,Pi_t)-np.matmul(D,Qi_t)
-    Qf_e=np.matmul(D,Pi_t)+np.matmul(C,Qi_t)
-    Sfe_t=Pf_e+1j*Qf_e
-    
-    result1.dSfm_t[iter,:]=abs(Sfm_t-abs(Sfe_t))
-    id_inac=np.where(Sfm_t<1e-4)
-    result1.dSfmp_t[iter,:]=result1.dSfm_t[iter,:]/Sfm_t
-    result1.dSfmp_t[iter,id_inac]=0
-    result1.dPfm_t[iter,:]=abs(Pf_t-Pf_e)
-    result1.dPfmp_t[iter,:]=abs(Pf_t-Pf_e)/abs(Pf_t)*100
-    id_inac=np.where(abs(Pf_t)<1e-4)
-    result1.dPfm_t[iter,id_inac]=0
-    result1.dPfmp_t[iter,id_inac]=0
-    result1.dQfm_t[iter,:]=abs(Qf_t-Qf_e)
-    result1.dQfmp_t[iter,:]=abs(Qf_t-Qf_e)/abs(Qf_t)*100
-    id_inac=np.where(abs(Qf_t)<1e-4)
-    result1.dQfm_t[iter,id_inac]=0
-    result1.dQfmp_t[iter,id_inac]=0
-    plt.figure(1)
-    plt.plot(result1.dPfm_t[iter,:]*sbase)
-    plt.title('Absolute error of Pfm')
-    plt.xlabel('Branch id')
-    plt.ylabel('Error (Mw)')
-    plt.grid(True)
-    plt.savefig(path_plt+'/AbsErr_Pfm.png', dpi=400) 
-    plt.figure(2)
-    plt.plot(result1.dPfmp_t[iter,:])
-    plt.title('Relative error of Pfm')
-    plt.xlabel('Branch id')
-    plt.ylabel('%')
-    plt.grid(True)
-    plt.savefig(path_plt+'/ResErr_Pfm.png', dpi=400) 
-    plt.figure(3)
-    plt.plot(result1.dQfm_t[iter,:]*sbase)
-    plt.title('Absolute error of QPm')
-    plt.xlabel('Branch id')
-    plt.ylabel('Error (Mvar)')
-    plt.grid(True)
-    plt.savefig(path_plt+'/AbsErr_Qfm.png', dpi=400) 
-    plt.figure(4)
-    plt.plot(result1.dQfmp_t[iter,:])
-    plt.title('Relative error of Qfm')
-    plt.xlabel('Branch id')
-    plt.ylabel('%')
-    plt.grid(True)
-    plt.savefig(path_plt+'/ResErr_Qfm.png', dpi=400) 
-    1
 iterations=list(range(iter_max))
 
 #path_plt = os.path.join(path_cur, 'Plot')
@@ -859,11 +686,9 @@ plt.savefig(path_plt+'/Qsgen.png', dpi=400)
 
 iplt+=1
 plt.figure(iplt) 
-plot_vm=plt.plot(vmll,marker='o', markersize=0.5)
-plot_vm0=plt.plot(vmll0,marker='o',markersize=0.5)
+plot_vm=plt.plot(vmll,'.')
 plot_ub=plt.plot([v_u]*nLL,'--',linewidth=1)
 plot_lb=plt.plot([v_l]*nLL,'--',linewidth=1)
 plt.ylim(vplt_min, vplt_max)
 plt.title('v (p.u.)')
-plt.legend(['Optimal', 'Initial','upper','lower'])
 plt.savefig(path_plt+'/VProfile.png', dpi=400) 

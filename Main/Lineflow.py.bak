@@ -43,9 +43,8 @@ beta_qgmin=-1.5
 # path_cur = Path(os.getcwd())
 # path_par = path_cur.parent.absolute()
 path_output = os.path.join(path_par, 'Matlab files\output file')
-##icase = 'Maui2022dm_rd_v33.mat'# convert switched shunts into generators, one transformer has phase shift
-#icase='Maui2022dm_rd_v33_SwitchShuntsNoPhaseshift'# convert switched shunts into generators, transformers don't have phase shift
-icase='Maui2022dm_rd_v33'
+#icase = 'Maui2022dm_rd_v33.mat'# convert switched shunts into generators, one transformer has phase shift
+icase='Maui2022dm_rd_v33_SwitchShuntsNoPhaseshift'# convert switched shunts into generators, transformers don't have phase shift
 net = pc.from_mpc(path_output + '\\' + icase, f_hz=60)# initial condition
 icase= 'Maui2022dm_rd_AggregateGens.mat'# physical system simulator
 net_t=pc.from_mpc(path_output + '\\' + icase, f_hz=60)
@@ -424,14 +423,14 @@ vll=v[busid_LL]
 
 vmll0=vm[busid_LL]
 
-# iplt=1
-# plt.figure(iplt)
-# plot_vm=plt.plot(vmll,'.')
-# plot_ub=plt.plot([v_u]*nLL,'--',linewidth=1)
-# plot_lb=plt.plot([v_l]*nLL,'--',linewidth=1)
-# plt.ylim(vplt_min, vplt_max)
-# plt.title('v (p.u.)')
-# plt.savefig(path_plt+'/VProfile0.png', dpi=400) 
+iplt=1
+plt.figure(iplt)
+plot_vm=plt.plot(vmll,'.')
+plot_ub=plt.plot([v_u]*nLL,'--',linewidth=1)
+plot_lb=plt.plot([v_l]*nLL,'--',linewidth=1)
+plt.ylim(vplt_min, vplt_max)
+plt.title('v (p.u.)')
+plt.savefig(path_plt+'/VProfile0.png', dpi=400) 
 
 print('max v:',vmll.max())
 print('min v:',vmll.min())
@@ -643,8 +642,7 @@ for iter in range(iter_max):
     
     # dpf=np.real(Sf_t)-Pf_e
     # dqf=np.imag(Sf_t)-Qf_e
-    Pf_t=np.real(Sf_t)
-    Qf_t=np.imag(Sf_t)
+    
     Sfm_t=abs(Sf_t)
     # Pfr=np.real(Sf_t)/Sfm_t
     # Qfr=np.imag(Sf_t)/Sfm_t
@@ -675,44 +673,27 @@ for iter in range(iter_max):
     id_inac=np.where(Sfm_t<1e-4)
     result1.dSfmp_t[iter,:]=result1.dSfm_t[iter,:]/Sfm_t
     result1.dSfmp_t[iter,id_inac]=0
-    result1.dPfm_t[iter,:]=abs(Pf_t-Pf_e)
-    result1.dPfmp_t[iter,:]=abs(Pf_t-Pf_e)/abs(Pf_t)*100
-    id_inac=np.where(abs(Pf_t)<1e-4)
+    result1.dPfm_t[iter,:]=abs(np.real(Sf_t)-Pf_e)
+    result1.dPfmp_t[iter,:]=abs(np.real(Sf_t)-Pf_e)/abs(np.real(Sf_t))
+    id_inac=np.where(abs(np.real(Sf_t))<1e-4)
     result1.dPfm_t[iter,id_inac]=0
     result1.dPfmp_t[iter,id_inac]=0
-    result1.dQfm_t[iter,:]=abs(Qf_t-Qf_e)
-    result1.dQfmp_t[iter,:]=abs(Qf_t-Qf_e)/abs(Qf_t)*100
-    id_inac=np.where(abs(Qf_t)<1e-4)
-    result1.dQfm_t[iter,id_inac]=0
-    result1.dQfmp_t[iter,id_inac]=0
     plt.figure(1)
-    plt.plot(result1.dPfm_t[iter,:]*sbase)
+    plt.plot(result1.dPfm_t[iter,:])
     plt.title('Absolute error of Pfm')
-    plt.xlabel('Branch id')
-    plt.ylabel('Error (Mw)')
     plt.grid(True)
-    plt.savefig(path_plt+'/AbsErr_Pfm.png', dpi=400) 
     plt.figure(2)
     plt.plot(result1.dPfmp_t[iter,:])
     plt.title('Relative error of Pfm')
-    plt.xlabel('Branch id')
-    plt.ylabel('%')
     plt.grid(True)
-    plt.savefig(path_plt+'/ResErr_Pfm.png', dpi=400) 
     plt.figure(3)
-    plt.plot(result1.dQfm_t[iter,:]*sbase)
-    plt.title('Absolute error of QPm')
-    plt.xlabel('Branch id')
-    plt.ylabel('Error (Mvar)')
+    plt.plot(result1.dQfm_t[iter,:])
+    plt.title('Absolute error of Pfm')
     plt.grid(True)
-    plt.savefig(path_plt+'/AbsErr_Qfm.png', dpi=400) 
     plt.figure(4)
     plt.plot(result1.dQfmp_t[iter,:])
-    plt.title('Relative error of Qfm')
-    plt.xlabel('Branch id')
-    plt.ylabel('%')
+    plt.title('Relative error of Pfm')
     plt.grid(True)
-    plt.savefig(path_plt+'/ResErr_Qfm.png', dpi=400) 
     1
 iterations=list(range(iter_max))
 
