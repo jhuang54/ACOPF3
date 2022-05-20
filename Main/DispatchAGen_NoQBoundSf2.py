@@ -561,14 +561,14 @@ for iter in range(iter_max):
     # net_t.load.p_mw[busid_ld_lds]=-pld_t*sbase# load is positive in net.load
     # net_t.load.q_mvar[busid_ld_lds]=-qld_t*sbase
     
-    # # dispatch (p,v) for generator
-    # pAg_t=pAg_net_t[busid_g_LL]
-    # vg_t=abs(vll[busid_g_LL])
+    # dispatch (p,v) for generator
+    pAg_t=pAg_net_t[busid_g_LL]
+    vg_t=abs(vll[busid_g_LL])
     
-    # net_t.gen.p_mw=pAg_t*sbase
-    # net_t.gen.vm_pu=vg_t   
+    net_t.gen.p_mw=pAg_t*sbase
+    net_t.gen.vm_pu=vg_t   
     
-    # pp.runpp(net_t, algorithm='nr', calculate_voltage_angles=True)
+    #pp.runpp(net_t, algorithm='nr', calculate_voltage_angles=True)
 
     # # check whether generator tracks dispatch 
     # # load
