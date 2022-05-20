@@ -27,7 +27,7 @@ path_par = path_cur.parent.absolute()
 path_plt = os.path.join(path_cur, 'Plot')
 
 # parameter setting
-iter_max=3000
+iter_max=1000
 alpha_ld=0.1# f=alpha*(pld-\hat{pld})^2
 alpha_g=0.1# f=alpha*(pg-\hat{pg})^2
 alpha_sg=0.1
@@ -43,7 +43,8 @@ beta_qgmin=-1.5
 # path_cur = Path(os.getcwd())
 # path_par = path_cur.parent.absolute()
 path_output = os.path.join(path_par, 'Matlab files\output file')
-icase = 'Maui2022dm_rd_v33.mat'
+#icase = 'Maui2022dm_rd_v33.mat'
+icase ='Maui2022dm_rd_v33_SwitchShuntsNoPhaseshift.mat'
 net = pc.from_mpc(path_output + '\\' + icase, f_hz=60)# initial condition
 icase= 'Maui2022dm_rd_AggregateGens.mat'# physical system simulator
 net_t=pc.from_mpc(path_output + '\\' + icase, f_hz=60)
@@ -298,10 +299,10 @@ Dt=np.transpose(D)
 # initialize controllable loads
 epsi_pld=0
 epsi_qld=0
-epsi_pg=0.05
-epsi_qg=0.05
-epsi_psg=0.05
-epsi_qsg=0.05
+epsi_pg=0.07
+epsi_qg=0.07
+epsi_psg=0.07
+epsi_qsg=0.07
 # epsi_pg=0
 # epsi_qg=0
 # epsi_psg=0
@@ -309,8 +310,8 @@ epsi_l=0.1
 
 epsi_u=0.1
 
-v_l=0.90# bounds for opf
-v_u=1.10
+v_l=0.95# bounds for opf
+v_u=1.05
 vplt_min=v_l*0.99# bounds for plot
 vplt_max=v_u*1.01
 
@@ -660,10 +661,10 @@ iplt+=1
 plt.figure(iplt)    
 plot_lambda_u=plt.plot(iterations, result1.lambda_u,linestyle='--',color='red')
 plot_lambda_d=plt.plot(iterations, result1.lambda_d,linestyle='--',color='blue')
-plt.legend((plot_lambda_u[0], plot_lambda_d[0]), ('lambda up', 'lambda lower'))
+plt.legend((plot_lambda_u[0], plot_lambda_d[0]), ('Upper', 'Lower'))
 plt.xlabel('Iteration No.')
 plt.ylabel('Lambda')
-plt.title('Lambda')
+plt.title('Maximum dual variable')
 plt.grid(True)
 plt.savefig(path_plt+'/lambda.png', dpi=400)    
 

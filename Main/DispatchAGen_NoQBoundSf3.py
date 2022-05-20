@@ -811,21 +811,21 @@ for iterat in range(iter_max):
     # plt.grid(True)
     # plt.savefig(path_plt+'/MisXKcl_t.png', dpi=400) 
     
-    # # (B,Sf)=0
-    # dkvl_t=np.matmul(B,Sf_t)
-    # iplt+=1
-    # plt.figure(iplt)
-    # plt_r=plt.plot(range(0,nclp),sbase*abs(np.real(dkvl_t)))
-    # plt.title('Error of real part of kvl_t')
-    # plt.grid(True)
-    # plt.savefig(path_plt+'/MisRKvl_t.png', dpi=400) 
-    # iplt+=1
-    # plt.figure(iplt)
-    # plt_x=plt.plot(range(0,nclp),sbase*abs(np.imag(dkvl_t)))
-    # plt.title('Error of imaginary part of kvl_t')
-    # plt.grid(True)
-    # plt.savefig(path_plt+'/MisXKvl_t.png', dpi=400) 
-    
+    # (B,Sf)=0
+    dkvl_t=np.matmul(B,Sf_t)
+    iplt+=1
+    plt.figure(iplt)
+    plt_r=plt.plot(range(0,nclp),sbase*abs(np.real(dkvl_t)))
+    plt.title('Error of real part of kvl_t')
+    plt.grid(True)
+    plt.savefig(path_plt+'/MisRKvl_t.png', dpi=400) 
+    iplt+=1
+    plt.figure(iplt)
+    plt_x=plt.plot(range(0,nclp),sbase*abs(np.imag(dkvl_t)))
+    plt.title('Error of imaginary part of kvl_t')
+    plt.grid(True)
+    plt.savefig(path_plt+'/MisXKvl_t.png', dpi=400) 
+    1
     # # (A,Sf)=Si
     # dkcle_t=np.matmul(A,Sfe_t)-sll_net_t
     # iplt+=1
