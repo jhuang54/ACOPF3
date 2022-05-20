@@ -10,6 +10,13 @@ from scipy.sparse.csgraph import minimum_spanning_tree
 import matplotlib.pyplot as plt
 # apparent power flow limit model
 
+import os
+
+from pathlib import Path
+
+path_cur = Path(os.getcwd())
+path_par = path_cur.parent.absolute()
+path_plt = os.path.join(path_cur, 'Plot')
 
 # branch table [fbus,tbus]
 # brh_fbus=np.concatenate((net.line.from_bus.values,net.trafo.hv_bus.values))
@@ -122,7 +129,7 @@ for i in range(nbrh):
 Y=-Ybrh
 for i in range(nbus):
     Y[i,i]=-sum(Y[i,:])
-busid_LL=[1,2]
+busid_LL=[1,2,3,4]
 YLL=Y[np.ix_(busid_LL,busid_LL)]
 Z_pu=np.linalg.inv(YLL)
 busid_slack=0
@@ -154,7 +161,7 @@ Xt=np.transpose(X)
 vll=np.ones(nLL,dtype=complex)
 #sll_net_t=1e-2*(-1-1j)*np.ones(nLL,dtype=complex)
 sll_net_t0=np.array([1e-2*(-1-0.5j),1e-2*(-2-1j),1e-2*(1+0.5j),1e-2*(1+0.5j)])
-sll_net_t=np.array([1e-2*(-1-0.5j),1e-2*(-2-1j),1e-2*(1+0.5j),1e-2*(1+0.5j)])
+sll_net_t=sll_net_t0
 vll0=vll
 
 itr_pf=0
@@ -200,15 +207,16 @@ dqf=Qf_t-Qf_e
 Sfe_t=Pf_e+1j*Qf_e
 
 # initialize controllable loads
+busid_ld=[0,1]
 epsi_pg=0.05*np.ones((nLL))
 epsi_qg=0.05*np.ones((nLL))
-epsi_pg[0]=0
-epsi_qg[0]=0
-epsi_l=0.001
+epsi_pg[busid_ld]=0
+epsi_qg[busid_ld]=0
+epsi_l=0.005
 
 epsi_u=0.005#0.01 for np.min(Smax_brh)>=6, 0.001 for np.min(Smax_brh)>=5.58
 
-v_l=0.90# bounds for opf
+v_l=0.93# bounds for opf
 v_u=1.1
 vplt_min=v_l*0.9# bounds for plot
 vplt_max=v_u*1.1
@@ -220,7 +228,7 @@ pg_t=np.real(sll_net_t)
 qg_t=np.imag(sll_net_t)
 
 pll_g_t=np.zeros(nLL)
-busid_g_LL=[0,1]
+busid_g_LL=[0,1,2,3]
 pll_g_t[busid_g_LL]=pg_t# load is negative in linearized power flow model
 qll_g_t=np.zeros(nLL)
 qll_g_t[busid_g_LL]=qg_t
@@ -274,7 +282,7 @@ u_l=np.zeros(nbrh)
 
 vll0=vll
 
-iter_max=2000
+iter_max=12000
 alpha_ld=0.1# f=alpha*(pld-\hat{pld})^2
 alpha_g=0.1# f=alpha*(pg-\hat{pg})^2
 alpha_sg=0.1
@@ -309,7 +317,8 @@ result1.u_u=np.zeros(iter_max)
 result1.u_l=np.zeros(iter_max)
 iplt=0
 sbase=1
-Smax_brh=np.array([0.01,0.008,0.05])
+#Smax_brh=np.array([1,1,1,1,1])
+Smax_brh=np.array([0.001,0.001,0.001,0.05,0.05])
 for iterat in range(iter_max):
     # derivative of voltage constraints with respect to (p, q)
     dvcnstr_dp=Rt.dot(lambda_u-lambda_d)
@@ -625,7 +634,7 @@ plt.xlabel('Iteration No.')
 plt.ylabel('Voltage magnitude, p.u.')
 plt.title('Controlled Voltage')
 plt.grid(True)
-#plt.savefig(path_plt+'/v.png', dpi=400)    
+plt.savefig(path_plt+'/v.png', dpi=400)    
 
 iplt+=1
 plt.figure(iplt)    
@@ -636,7 +645,7 @@ plt.xlabel('Iteration No.')
 plt.ylabel('Lambda')
 plt.title('Lambda')
 plt.grid(True)
-#plt.savefig(path_plt+'/lambda.png', dpi=400)    
+plt.savefig(path_plt+'/lambda.png', dpi=400)    
 
 
 iplt+=1
@@ -649,7 +658,7 @@ plt.xlabel('Iteration No.')
 plt.ylabel('u')
 plt.title('u')
 plt.grid(True)
-#plt.savefig(path_plt+'/u.png', dpi=400)   
+plt.savefig(path_plt+'/u.png', dpi=400)   
 
 
 # DER optimal vs intial (p,q)
@@ -704,7 +713,7 @@ plt.title('Pgen (mw)')
 #plt.legend((plot_psgt[0], plot_psg[0],plot_psgmin[0], plot_psgmax[0]), ('Optimal', 'Initial','Min', 'Max'))
 plt.legend((plot_pgt[0], plot_pg[0]), ('Optimal', 'Initial'))
 plt.grid(True)
-#plt.savefig(path_plt+'/Pgen.png', dpi=400)  
+plt.savefig(path_plt+'/Pgen.png', dpi=400)  
 
 # plt.figure(6)
 # plot_vg=plt.plot(vg,linewidth=1)
@@ -725,7 +734,7 @@ plt.title('Qgen (mvar)')
 #plt.legend((plot_qgt[0], plot_qg[0],plot_lb[0],plot_ub[0]), ('Optimal', 'Initial','Lower Bound','Upper Bound'))
 plt.legend((plot_qgt[0], plot_qg[0]), ('Optimal', 'Initial'))
 plt.grid(True)
-#plt.savefig(path_plt+'/Qgen.png', dpi=400)  
+plt.savefig(path_plt+'/Qgen.png', dpi=400)  
 
 iplt+=1
 plt.figure(iplt) 
@@ -737,7 +746,7 @@ plt.ylim(vplt_min, vplt_max)
 plt.title('v (p.u.)')
 plt.legend(['Optimal', 'Initial','upper','lower'])
 plt.grid(True)
-#plt.savefig(path_plt+'/VProfile.png', dpi=400) 
+plt.savefig(path_plt+'/VProfile.png', dpi=400) 
 
 iplt+=1
 plt.figure(iplt) 
@@ -750,6 +759,7 @@ plt.xlabel(['Bus index'])
 plt.ylabel(['S (p.u.)'])
 plt.legend(['Optimal', 'Initial','upper'])
 plt.grid(True)
+plt.savefig(path_plt+'/Sf_t.png', dpi=400) 
 
 iplt+=1
 plt.figure(iplt) 
@@ -761,6 +771,7 @@ plt.xlabel(['Bus index'])
 plt.ylabel(['P (p.u.)'])
 plt.legend(['Optimal', 'Initial'])
 plt.grid(True)
+plt.savefig(path_plt+'/Pf_t.png', dpi=400) 
 
 iplt+=1
 plt.figure(iplt) 
@@ -772,3 +783,4 @@ plt.xlabel(['Bus index'])
 plt.ylabel(['Q (p.u.)'])
 plt.legend(['Optimal', 'Initial'])
 plt.grid(True)
+plt.savefig(path_plt+'/Qf_t.png', dpi=400) 

@@ -1,0 +1,20 @@
+Before control:
+sll_net_t0=
+array([-0.01-0.005j, -0.02-0.01j ,  0.01+0.005j,  0.01+0.005j])
+
+abs(Sf_t0)=
+array([0.00396482, 0.00374993, 0.00773786, 0.0109908 , 0.01098862])
+
+Smax_brh=
+array([0.001, 0.001, 0.001, 0.05 , 0.05 ])
+
+After control
+sll_net_t=
+array([-0.01     -0.005j     , -0.02     -0.01j      ,
+        0.0110703+0.00561073j,  0.018708 +0.00956224j])
+		
+abs(Sf_t)=
+array([1.60474108e-05, 1.00003585e-03, 1.00001409e-03, 1.21806247e-02,
+       2.03640403e-02])
+	   
+Due to line constraint of branch 0,1 and 2, generators at bus 3 and 4 generate more power.

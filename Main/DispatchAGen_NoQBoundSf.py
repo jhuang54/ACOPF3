@@ -27,7 +27,7 @@ path_par = path_cur.parent.absolute()
 path_plt = os.path.join(path_cur, 'Plot')
 
 # parameter setting
-iter_max=50000
+iter_max=1000
 alpha_ld=0.1# f=alpha*(pld-\hat{pld})^2
 alpha_g=0.1# f=alpha*(pg-\hat{pg})^2
 alpha_sg=0.1
@@ -186,7 +186,7 @@ imax_line=imax_line[id_line_serv]
 Smax_line=np.sqrt(3)*vn_line_fbus*imax_line/sbase
 Smax_traf=net.trafo.sn_mva*(net.trafo.max_loading_percent/100)/sbase#net.trafo.max_loading_percent=100
 Smax_brh=np.concatenate((Smax_line,Smax_traf))
-Smax_brh[np.where(Smax_brh<4.7)]=4.7#works >=0.52;5.59 leads to active constraints, 0.001
+Smax_brh[np.where(Smax_brh<10)]=10#works >=0.52;5.59 leads to active constraints, 0.001
 #Smax_brh[142]=5.6
 Smin_brh=0
 brh_y=np.zeros(nbrh,dtype=complex)
@@ -310,7 +310,7 @@ Dt=np.transpose(D)
 # qld=net.load.q_mvar.to_numpy()
 
 
-# initialize controllable loads
+# stepsize
 epsi_pld=0
 epsi_qld=0
 epsi_pg=0.05
@@ -320,12 +320,12 @@ epsi_qsg=0.05
 # epsi_pg=0
 # epsi_qg=0
 # epsi_psg=0
-epsi_l=0.001
+epsi_l=0.02
+epsi_u=0.001#0.01 for np.min(Smax_brh)>=6, 0.001 for np.min(Smax_brh)>=5.58
 
-epsi_u=0.0015#0.01 for np.min(Smax_brh)>=6, 0.001 for np.min(Smax_brh)>=5.58
-
-v_l=0.8# bounds for opf
-v_u=1.1
+# bound
+v_l=0.95# bounds for opf
+v_u=1.05
 vplt_min=v_l*0.9# bounds for plot
 vplt_max=v_u*1.1
 
@@ -828,14 +828,40 @@ plt.legend((plot_qsgt[0], plot_qsg[0]), ('Optimal', 'Initial'))
 plt.grid(True)
 plt.savefig(path_plt+'/Qsgen.png', dpi=400)  
 
+# iplt+=1
+# plt.figure(iplt) 
+# plot_vm=plt.plot(vmll,marker='o', markersize=0.5)
+# plot_vm0=plt.plot(vmll0,marker='o',markersize=0.5)
+# plot_ub=plt.plot([v_u]*nLL,'--',linewidth=1)
+# plot_lb=plt.plot([v_l]*nLL,'--',linewidth=1)
+# plt.ylim(vplt_min, vplt_max)
+# plt.title('v (p.u.)')
+# plt.legend(['Optimal', 'Initial','upper','lower'])
+# plt.grid(True)
+# plt.savefig(path_plt+'/VProfile.png', dpi=400) 
+
+path_result = os.path.join(path_output, 'MatpowerResult')
+from scipy.io import loadmat
+vm_Matpower = loadmat(path_result+'\\'+'vm_mpc_maui_21Q3_vm.m')
+vm_Matpower =vm_Matpower['vm']
+id_isolated=np.where(vm_Matpower==1)[0]
+vm_Matpower=np.delete(vm_Matpower, id_isolated)
+
+vpool=np.concatenate((vmll,vmll0))
+vpool=np.concatenate((vpool,vm_Matpower))
+vplt_max=max(vpool)*1.02
+vplt_min=min(vpool)*0.98
 iplt+=1
 plt.figure(iplt) 
-plot_vm=plt.plot(vmll,marker='o', markersize=0.5)
-plot_vm0=plt.plot(vmll0,marker='o',markersize=0.5)
-plot_ub=plt.plot([v_u]*nLL,'--',linewidth=1)
-plot_lb=plt.plot([v_l]*nLL,'--',linewidth=1)
+plot_vm=plt.plot(vmll,'r.')
+plot_vm0=plt.plot(vmll0,'b.')
+plot_vmMp=plt.plot(vm_Matpower,'y.')
+plot_ub=plt.plot([v_u]*nLL,'--',linewidth=1.5)
+plot_lb=plt.plot([v_l]*nLL,'--',linewidth=1.5)
 plt.ylim(vplt_min, vplt_max)
-plt.title('v (p.u.)')
-plt.legend(['Optimal', 'Initial','upper','lower'])
+plt.title('Voltage Profile Comparison')
+plt.xlabel('Bus index')
+plt.ylabel('Voltage (p.u.)')
+plt.legend(['ACOPF (P)', 'DCOPF','ACOPF (M)','upper','lower'])
 plt.grid(True)
 plt.savefig(path_plt+'/VProfile.png', dpi=400) 
