@@ -6,11 +6,11 @@ newdir=mydir(1:idcs(end)-1);
 
 pssedir=[newdir '\psse raw file\'];
 
-rawfile_name='Maui2022dm_rd_v33.raw';
-% rawfile_name='Maui2022dm_rd_v33_shunt.raw';
+% rawfile_name='Maui2022dm_rd_v33.raw';
+rawfile_name='Maui2022dm_rd_v33_shunt.raw';
 % rawfile_name='Maui2022dm_v4_v33.raw';
 verbose=1;
-mpc_name='Maui2022dm_rd_v33.mat';
+mpc_name='Maui2022dm_rd_v33_shunt.mat';
 [mpc, warnings] = psse2mpc([pssedir rawfile_name], mpc_name, verbose);
 
 mpc.version='2';
