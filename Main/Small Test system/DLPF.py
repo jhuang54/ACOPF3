@@ -6,15 +6,22 @@ import numpy as np
 
 import pandas as pd
 
+from numpy.linalg import inv
+
 net = pn.case4gs()
 nbus = len(net.bus)
 
 pp.runpp(net, algorithm='nr', calculate_voltage_angles=True)
 
+# reference bus
+vm0=net.ext_grid.vm_pu.to_numpy()
+va0=net.ext_grid.va_degree.to_numpy()*np.pi/180
 # base value:
 # apparent power: net.sn_mva
 # voltage: net.bus.vn_kv
 # consider shunt elements in diagonal elements
+sbase=net.sn_mva
+
 Ybus = net._ppc['internal']['Ybus']
 mappd2ppc = net._pd2ppc_lookups["bus"]
 Ybus = Ybus[mappd2ppc, 0:nbus]
@@ -105,9 +112,37 @@ BLLp=Bp[busid_LL,:]
 BLLp=BLLp[:,busid_LL]
 
 # H, N, M, L
-H=BLLp
-N=-GLL
-M=GLL
-L=BLL
+H=-BLLp
+N=GLL
+M=-GLL
+L=-BLL
 
-Htl=H-np.matmul(N,)
+Htl=H-np.matmul(N,np.matmul(inv(L),M))
+Ltl=L-np.matmul(M,np.matmul(inv(H),N))
+
+# pl=A*Ptl+B*Qtl
+Ritf=-(np.matmul(gl,np.matmul(inv(Ltl),np.matmul(M,inv(H)))))
+Xitf=np.matmul(gl,inv(Ltl))+np.matmul(bl,np.matmul(inv(Htl),np.matmul(N,inv(L))))
+
+# pnet
+Pnet=-net.res_bus.p_mw.to_numpy()/sbase
+Pnet=np.delete(Pnet, busid_slack, 0)
+
+Qnet=-net.res_bus.q_mvar.to_numpy()/sbase
+Qnet=np.delete(Qnet, busid_slack, 0)
+
+# Ptl, Qtl
+BLRp=Bp[busid_LL,busid_slack]
+GLR=G[busid_LL,busid_slack]
+BLR=B[busid_LL,busid_slack]
+Ptl=Pnet+np.matmul(BLRp,va0)-np.matmul(GLR,vm0)
+Ptl=Ptl.reshape((nLL,1))
+Qtl=Qnet+np.matmul(GLR,va0)+np.matmul(BLR,vm0)
+Qtl=Qtl.reshape((nLL,1))
+
+# Pftl, Qftl
+Pftl=np.matmul(Ritf,Ptl)+np.matmul(Xitf,Qtl)
+
+# theta, v
+angtl=np.matmul(inv(Htl),Ptl)-np.matmul(inv(Htl),np.matmul(N,np.matmul(inv(L),Qtl)))
+vmtl=np.matmul(inv(Ltl),Qtl)-np.matmul(inv(Ltl),np.matmul(M,np.matmul(inv(H),Ptl)))

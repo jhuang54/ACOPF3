@@ -1,0 +1,5 @@
+Total Pgen Adjustment (Mw): 0.022665509962483597
+Total Qgen Adjustment (Mvar): 0.36933367816815954
+Total Shunt Adjustment (Mvar): 0.029237748084534367
+Maximum voltage: 1.064366695940575
+Minimum voltage: 0.8999815088877692

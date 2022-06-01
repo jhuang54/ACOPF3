@@ -1,0 +1,3 @@
+Total Pgen Adjustment (Mw): 0.08895167514449448
+Total Qgen Adjustment (Mvar): 1.4494297506754397
+Total Shunt Adjustment (Mvar): 0.11474632711914631

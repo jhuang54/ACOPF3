@@ -1,4 +1,5 @@
-# task: update load, generator and static generator, dispatch aggregated generators. All the generators on one bus are aggregated to one generator.
+# task: update generator and static generator, dispatch aggregated generators. All the generators on one bus are aggregated to one generator.
+# maximual values>=Pgen, Psgen>=minimual values, Qsgen[-18:]>=Qsgen_min[-18], Qsgen[-18:]<=Qsgen_max[-18]; No Qgen or Qsgen constraints
 # load is negative in linearized power flow model, but positive in net.load.p_mw, net.load.q_mvar
 # generation is positive in linearized power flow model, and positive in net.gen.p_mw, net.gen.q_mvar, net.sgen. p_mw,net.sgen.q_mvar
 # net.load.p_mw, net.load.q_mwar, net.gen.p_mw, net.gen.q_mvar, net.sgen. p_mw,net.sgen.q_mvar are real value with unit mw and mwar
@@ -26,7 +27,7 @@ path_par = path_cur.parent.absolute()
 path_plt = os.path.join(path_cur, 'Plot')
 
 # parameter setting
-iter_max=3000
+iter_max=1000
 alpha_ld=0.1# f=alpha*(pld-\hat{pld})^2
 alpha_g=0.1# f=alpha*(pg-\hat{pg})^2
 alpha_sg=0.1
@@ -42,13 +43,13 @@ beta_qgmin=-1.5
 # path_cur = Path(os.getcwd())
 # path_par = path_cur.parent.absolute()
 path_output = os.path.join(path_par, 'Matlab files\output file')
-icase = 'Maui2022dm_rd_v33.mat'
+icase = 'Maui2022dm_rd_v33_shunt.mat'
 net = pc.from_mpc(path_output + '\\' + icase, f_hz=60)# initial condition
 icase= 'Maui2022dm_rd_AggregateGens.mat'# physical system simulator
 net_t=pc.from_mpc(path_output + '\\' + icase, f_hz=60)
 
 
-sbase=10#10 MVA
+sbase=net.sn_mva#10 MVA
 
 nbus = len(net.bus)
 nLL=nbus-1
@@ -118,6 +119,9 @@ for isgen in range(0,nsgen):
 
 id_sgen_OutSer=np.where(net.sgen.in_service==False)
 
+# alpha_sqg=0.1*np.ones(nsgen)
+# alpha_sqg[-18:]=1
+
 YLL=Ybus[np.ix_(busid_LL,busid_LL)]
 #YLL=YLL.todense()
 Z_pu=inv(YLL)
@@ -173,10 +177,25 @@ nbrh=len(id_brh_serv)
 brh_fbus=brh_fbus[id_brh_serv]
 brh_tbus=brh_tbus[id_brh_serv]
 
+# bus voltage 
+vn=net.bus.vn_kv.to_numpy()
+line_fbus=net.line.from_bus.values
+id_line_serv=np.where(net.line.in_service==True)[0]
+line_fbus=line_fbus[id_line_serv]
+vn_line_fbus=vn[line_fbus]
+# line current
+imax_line=net.line.max_i_ka.to_numpy()
+imax_line=imax_line[id_line_serv]
+Smax_line=np.sqrt(3)*vn_line_fbus*imax_line/sbase
+Smax_traf=net.trafo.sn_mva*(net.trafo.max_loading_percent/100)/sbase#net.trafo.max_loading_percent=100
+Smax_brh=np.concatenate((Smax_line,Smax_traf))
+Smax_brh[np.where(Smax_brh<10)]=10#works >=0.52;5.59 leads to active constraints, 0.001
+#Smax_brh[142]=5.6
+Smin_brh=0
 brh_y=np.zeros(nbrh,dtype=complex)
 # branch impedance
 for i in range(nbrh):
-    brh_y[i]=Ybus[brh_fbus[i],brh_tbus[i]]
+    brh_y[i]=-Ybus[brh_fbus[i],brh_tbus[i]]
 brh_z=1/brh_y
 # branch_tb[:,0]=fbus
 # branch_tb[:,1]=tbus
@@ -293,30 +312,34 @@ Dt=np.transpose(D)
 # pld=net.load.p_mw.to_numpy()
 # qld=net.load.q_mvar.to_numpy()
 
+# bound
+v_u = float(input('What is the upper bound of voltage (p.u.)? '))
+v_l = float(input('What is the lower bound of voltage (p.u.)? '))
+vplt_min=v_l*0.9# bounds for plot
+vplt_max=v_u*1.1
 
-# initialize controllable loads
+# stepsize
 epsi_pld=0
 epsi_qld=0
-# epsi_pg=0.05
-# epsi_qg=0.05
-# epsi_psg=0.05
-# epsi_qsg=0.05
-epsi_pg=0
-epsi_qg=0
-epsi_psg=0
-epsi_l=0.1
+ACorDCOPF=input('Do you run E-DCOPF or ACOPF? Type 0 for E-DC and 1 for AC.')
+if ACorDCOPF=='0':
+    epsi_pg=0
+    epsi_qg=0
+    epsi_psg=0  
+elif ACorDCOPF=='1':
+    # epsi_pg=0.05
+    # epsi_qg=0.05
+    # epsi_psg=0.05
+    epsi_pg=0.07
+    epsi_qg=0.07
+    epsi_psg=0.0
+# epsi_pg=0
+# epsi_qg=0
+# epsi_psg=0
+epsi_l=0.02
+epsi_u=0.001#0.01 for np.min(Smax_brh)>=6, 0.001 for np.min(Smax_brh)>=5.58
 
-epsi_u=0.1
-
-v_l=0.92# bounds for opf
-v_u=1.08
-vplt_min=v_l*0.96# bounds for plot
-vplt_max=v_u*1.05
-
-Sfm_u=10
-Sfm_l=0
-
-
+    
 # initial values of load 
 pld_t=-net.load.p_mw.to_numpy()/sbase
 pld_t=np.delete(pld_t, busid_s_ld)
@@ -373,21 +396,37 @@ qll_g[busid_g_LL]=qg
 # capacity of Generator
 pll_g_max=np.zeros(nLL)
 pll_g_max[busid_g_LL]=net.gen.max_p_mw.to_numpy()/sbase
+w_pll_g_max=np.ones(nLL)# fairness weights for each generator 
+w_pll_g_max[busid_g_LL]=(1/net.gen.max_p_mw.to_numpy()/sbase)**2
+
 pll_g_min=np.zeros(nLL)
 pll_g_min[busid_g_LL]=net.gen.min_p_mw.to_numpy()/sbase
 
 qll_g_max=np.zeros(nLL)
-qll_g_max[busid_g_LL]=net.gen.max_q_mvar.to_numpy()/sbase
+# qll_g_max[busid_g_LL]=np.maximum(net.gen.max_p_mw.to_numpy()/sbase,abs(qg)*1.2)
+# qll_g_min=np.zeros(nLL)
+# qll_g_min[busid_g_LL]=np.minimum(-net.gen.max_p_mw.to_numpy()/sbase,-abs(qg)*1.2)
+qll_g_max[busid_g_LL]=1.25*net.gen.max_p_mw.to_numpy()/sbase
 qll_g_min=np.zeros(nLL)
-qll_g_min[busid_g_LL]=net.gen.min_q_mvar.to_numpy()/sbase
-
+qll_g_min[busid_g_LL]=-1.25*net.gen.max_p_mw.to_numpy()/sbase
 
 # initial values of sgen
 psg_t=net.res_sgen.p_mw.to_numpy()/sbase
 qsg_t=net.res_sgen.q_mvar.to_numpy()/sbase
 nsg=len(qsg_t)
-epsi_qsg=np.zeros(nsg)
-epsi_qsg[-18:]=0.05
+
+if ACorDCOPF=='1':
+    ControlSwitchS = input('Does ACOPF control switched shunts? Type 0 for No and 1 for yes')
+    if ControlSwitchS=='0':
+        epsi_qsg=np.ones(nsg)
+        epsi_qsg[-18:]=0
+    elif ControlSwitchS=='1':
+         epsi_qsg=0.05
+elif ACorDCOPF=='0':
+    epsi_qsg=np.zeros(nsg)
+    epsi_qsg[-18:]=0.05
+
+    
 
 # desired values of sgen
 psg=net.res_sgen.p_mw.to_numpy()/sbase
@@ -396,16 +435,17 @@ qsg=net.res_sgen.q_mvar.to_numpy()/sbase
 # capacity of sGenerator
 psg_max=net.sgen.max_p_mw.to_numpy()/sbase
 psg_max[id_sgen_OutSer]=0#inactive generators which are out of service
+w_psg_max=(1/(net.sgen.max_p_mw.to_numpy()/sbase))**2# fair weight in the objective function
+w_psg_max[id_sgen_OutSer]=0#inactive generators which are out of service
 psg_min=net.sgen.min_p_mw.to_numpy()/sbase
 psg_min[id_sgen_OutSer]=0#inactive generators which are out of service
 
 
-qsg_max=net.sgen.max_q_mvar.to_numpy()/sbase
+qsg_max=net.sgen.max_p_mw.to_numpy()/sbase
 qsg_max[id_sgen_OutSer]=0#inactive generators which are out of service
-qsg_min=net.sgen.min_q_mvar.to_numpy()/sbase
-SwitchType = input('What is the kind of switched shunt? 1 capacitor 2 maxiture of capacitor and reactor?')
-if SwitchType=='2':
-   qsg_min[-18:]=-net.sgen.max_q_mvar.to_numpy()[-18:]/sbase#mixture of capacitor and reactor
+qsg_min=-net.sgen.max_p_mw.to_numpy()/sbase
+qsg_max[-18:]=net.sgen.max_q_mvar.to_numpy()[-18:]/sbase
+qsg_min[-18:]=0
 qsg_min[id_sgen_OutSer]=0#inactive generators which are out of service
 
 
@@ -416,14 +456,14 @@ vll=v[busid_LL]
 
 vmll0=vm[busid_LL]
 
-iplt=1
-plt.figure(iplt)
-plot_vm=plt.plot(vmll,'.')
-plot_ub=plt.plot([v_u]*nLL,'--',linewidth=1)
-plot_lb=plt.plot([v_l]*nLL,'--',linewidth=1)
-plt.ylim(vplt_min, vplt_max)
-plt.title('v (p.u.)')
-plt.savefig(path_plt+'/VProfile0.png', dpi=400) 
+iplt=0
+# plt.figure(iplt)
+# plot_vm=plt.plot(vmll,'.')
+# plot_ub=plt.plot([v_u]*nLL,'--',linewidth=1)
+# plot_lb=plt.plot([v_l]*nLL,'--',linewidth=1)
+# plt.ylim(vplt_min, vplt_max)
+# plt.title('v (p.u.)')
+# plt.savefig(path_plt+'/VProfile0.png', dpi=400) 
 
 print('max v:',vmll.max())
 print('min v:',vmll.min())
@@ -437,6 +477,9 @@ sll_net_t=S[busid_LL]
 
 lambda_u=np.zeros(nLL)
 lambda_d=np.zeros(nLL)
+
+u_u=np.zeros(nbrh)
+u_l=np.zeros(nbrh)
 
 vll0=vll
 
@@ -454,8 +497,9 @@ v_t=np.ones(nbus,dtype=complex)
 
 Qfr=np.zeros(nbrh)
 Pfr=np.zeros(nbrh)
-u_u=np.zeros(nbrh)
-u_l=np.zeros(nbrh)
+
+result1.u_u=np.zeros(iter_max)
+result1.u_l=np.zeros(iter_max)
 for iter in range(iter_max):
     # derivative of voltage constraints with respect to (p, q)
     dvcnstr_dp=Rt.dot(lambda_u-lambda_d)
@@ -480,16 +524,20 @@ for iter in range(iter_max):
     
     # each bus has at most 1 load and generator, but may have multiple static generators
     # minimize deviation from (pll_ld,qll_ld)
-    pll_ld_t=pll_ld_t-epsi_pld*(2*alpha_ld*(pll_ld_t-pll_ld)+dvcnstr_dp+dsf_dp)
-    qll_ld_t=qll_ld_t-epsi_qld*(2*alpha_ld*(qll_ld_t-qll_ld)+dvcnstr_dq+dsf_dq)
+    # pll_ld_t=pll_ld_t-epsi_pld*(2*alpha_ld*(pll_ld_t-pll_ld)+dvcnstr_dp+dsf_dp)
+    # qll_ld_t=qll_ld_t-epsi_qld*(2*alpha_ld*(qll_ld_t-qll_ld)+dvcnstr_dq+dsf_dq)
     
     # minimize generation from coal generator
+    # pll_g_t=pll_g_t-epsi_pg*(2*alpha_g*(pll_g_t-pll_g)*w_pll_g_max+dvcnstr_dp+dsf_dp)
+    # qll_g_t=qll_g_t-epsi_qg*(2*alpha_g*(qll_g_t-qll_g)*w_pll_g_max+dvcnstr_dq+dsf_dq)
     pll_g_t=pll_g_t-epsi_pg*(2*alpha_g*(pll_g_t-pll_g)+dvcnstr_dp+dsf_dp)
     qll_g_t=qll_g_t-epsi_qg*(2*alpha_g*(qll_g_t-qll_g)+dvcnstr_dq+dsf_dq)
     
     # minimize sgeneration from coal sgenerator 
+    # psg_t=psg_t-epsi_psg*(2*alpha_sg*(psg_t-psg)*w_psg_max+dvcnstr_dsp+dsf_dsp)
+    # qsg_t=qsg_t-epsi_qsg*(2*alpha_sg*(qsg_t-qsg)*w_psg_max+dvcnstr_dsq+dsf_dsq)
     psg_t=psg_t-epsi_psg*(2*alpha_sg*(psg_t-psg)+dvcnstr_dsp+dsf_dsp)
-    qsg_t=qsg_t-epsi_qsg*(2*alpha_sg*(qsg_t-qsg)+dvcnstr_dsq+dsf_dsq)
+    qsg_t=qsg_t-epsi_qsg*(2*alpha_sg*(qsg_t-qsg)+dvcnstr_dsq+dsf_dsq)    
     
     
     # project
@@ -500,15 +548,15 @@ for iter in range(iter_max):
     
     pll_g_t=np.maximum(pll_g_t,pll_g_min)
     pll_g_t=np.minimum(pll_g_t,pll_g_max)
-    # qll_g_t=np.maximum(qll_g_t,qll_g_min)
-    # qll_g_t=np.minimum(qll_g_t,qll_g_max)
+    qll_g_t=np.maximum(qll_g_t,qll_g_min)
+    qll_g_t=np.minimum(qll_g_t,qll_g_max)
     
     psg_t=np.maximum(psg_t,psg_min)
     psg_t=np.minimum(psg_t,psg_max)
-    # qsg_t=np.maximum(qsg_t,qsg_min)
-    # qsg_t=np.minimum(qsg_t,qsg_max)
-    qsg_t[-18:]=np.maximum(qsg_t[-18:],qsg_min[-18:])
-    qsg_t[-18:]=np.minimum(qsg_t[-18:],qsg_max[-18:])
+    qsg_t=np.maximum(qsg_t,qsg_min)# only project switched shunts
+    qsg_t=np.minimum(qsg_t,qsg_max)# only project switched shunts
+    # qsg_t[-18:]=np.maximum(qsg_t[-18:],qsg_min[-18:])# only project switched shunts
+    # qsg_t[-18:]=np.minimum(qsg_t[-18:],qsg_max[-18:])# only project switched shunts
     
     # sgen to sll
     pll_sg_t=np.matmul(sgen_to_LL,psg_t)
@@ -537,8 +585,8 @@ for iter in range(iter_max):
         vll0=vll
         itr_pf=itr_pf+1
                
-    if err_vll>1e-3:
-        raise Exception('power flow diverge!\n')
+    # if err_vll>1e-3:
+    #     raise Exception('power flow diverge!\n')
     
          
     # # dispatch load 
@@ -607,6 +655,8 @@ for iter in range(iter_max):
     # track voltage and dual
     result1.lambda_u[iter]=lambda_u.max()
     result1.lambda_d[iter]=lambda_d.max()
+    result1.u_u[iter]=u_u.max()
+    result1.u_l[iter]=u_l.max()
     result1.vmax[iter]=vmll.max()
     result1.vmin[iter]=vmll.min()
     
@@ -638,14 +688,18 @@ for iter in range(iter_max):
     Qfr[id_sf0]=0
     
     # dual variable
-    u_u=u_u+epsi_u*(Sfm_t-Sfm_u)
-    u_l=u_l+epsi_u*(Sfm_l-Sfm_t)
+    u_u=u_u+epsi_u*(Sfm_t-Smax_brh)
+    #u_l=u_l+epsi_u*(Smin_brh-Sfm_t)
     
     # project dual variables
     u_u=np.maximum(u_u,0)
-    u_l=np.maximum(u_l,0)
+    #u_l=np.maximum(u_l,0)   
     
+    result1.u_u[iter]=u_u.max()
+    #result1.u_l[iter]=u_l.max()
 iterations=list(range(iter_max))
+
+print('Mismatch:',err_vll)
 
 #path_plt = os.path.join(path_cur, 'Plot')
 iplt+=1
@@ -671,17 +725,17 @@ plt.grid(True)
 plt.savefig(path_plt+'/lambda.png', dpi=400)    
 
 
-# iplt+=1
-# plt.figure(iplt)    
-# plot_u_u=plt.plot(iterations, result1.u_u,linestyle='--',color='red')
-# #plot_u_d=plt.plot(iterations, result1.u_l,linestyle='--',color='blue')
-# #plt.legend((plot_u_u[0], plot_u_d[0]), ('u up', 'u lower'))
-# #plt.legend(plot_u_u[0], 'u up')
-# plt.xlabel('Iteration No.')
-# plt.ylabel('u')
-# plt.title('u')
-# plt.grid(True)
-# plt.savefig(path_plt+'/u.png', dpi=400)   
+iplt+=1
+plt.figure(iplt)    
+plot_u_u=plt.plot(iterations, result1.u_u,linestyle='--',color='red')
+#plot_u_d=plt.plot(iterations, result1.u_l,linestyle='--',color='blue')
+#plt.legend((plot_u_u[0], plot_u_d[0]), ('u up', 'u lower'))
+#plt.legend(plot_u_u[0], 'u up')
+plt.xlabel('Iteration No.')
+plt.ylabel('u')
+plt.title('u')
+plt.grid(True)
+plt.savefig(path_plt+'/u.png', dpi=400)   
 
 
 # DER optimal vs intial (p,q)
@@ -767,6 +821,31 @@ plt.savefig(path_plt+'/Pgen.png', dpi=400)
 # plt.legend((plot_vgt[0], plot_vg[0]), ('Optimal', 'Initial'))
 # plt.savefig(path_plt+'/Vg.png', dpi=400)
 
+
+# iplt+=1
+# plt.figure(iplt) 
+# dpg_a=(pg_t-pg)*sbase
+# id_inac=np.where(pg==0)
+# dpg_r=(pg_t-pg)/pll_g_max[busid_g_LL]*100
+# dpg_r[id_inac]=0
+# fig, ax1 = plt.subplots()
+# color='tab:red'
+# ax1.set_xlabel('Generator index')
+# ax1.set_ylabel('Mw',color=color)
+# ax1.plot(range(1,len(pg)+1),dpg_a,markersize=3,color=color)
+# ax1.tick_params(axis='y', labelcolor='tab:red')
+
+# ax2=ax1.twinx()
+# color='tab:green'
+# ax2.set_ylabel('Percent %', color=color)  # we already handled the x-label with ax1
+# ax2.plot(range(1,len(pg)+1),dpg_r,'--', color=color)
+# ax2.tick_params(axis='y', labelcolor=color)
+# plt.xlim([1,len(pg)+1])
+# plt.title('Real Power Adjustment')
+# plt.grid(True)
+# plt.savefig(path_plt+'/Pgen_Adjust.png', dpi=400) 
+
+
 iplt+=1
 plt.figure(iplt) 
 plot_qg=plt.plot(qg,'.')
@@ -780,6 +859,29 @@ plt.legend((plot_qgt[0], plot_qg[0]), ('Optimal', 'Initial'))
 plt.grid(True)
 plt.savefig(path_plt+'/Qgen.png', dpi=400)  
 
+
+# iplt+=1
+# plt.figure(iplt) 
+# dqvg_a=(qg_t-qg)*sbase
+# id_inac=np.where(abs(qg_t)<1e-4)
+# dqvg_r=(qg_t-qg)/qg_t*100
+# dqvg_r[id_inac]=0
+# fig, ax1 = plt.subplots()
+# color='tab:red'
+# ax1.set_xlabel('Generator index')
+# ax1.set_ylabel('Mvar',color=color)
+# ax1.plot(range(1,len(qg)+1),dqg_a,markersize=3,color=color)
+# ax1.tick_params(axis='y', labelcolor='tab:red')
+
+# ax2=ax1.twinx()
+# color='tab:green'
+# ax2.set_ylabel('Percent %', color=color)  # we already handled the x-label with ax1
+# ax2.plot(range(1,len(qg)+1),dqg_r,'--', color=color)
+# ax2.tick_params(axis='y', labelcolor=color)
+# plt.xlim([1,len(qg)+1])
+# plt.title('Reactive Power Adjustment')
+# plt.grid(True)
+# plt.savefig(path_plt+'/Qgen_Adjust.png', dpi=400) 
 
 # sgen optimal vs intial (p,q)
 iplt+=1
@@ -796,6 +898,52 @@ plt.legend((plot_psgt[0], plot_psg[0]), ('Optimal', 'Initial'))
 plt.grid(True)
 plt.savefig(path_plt+'/Psgen.png', dpi=400)  
 
+# if v_l==0.9 and v_u==1.1:
+#     Padja_ylim=[0,0.0015]
+#     Padjr_ylim=[0,30]
+#     Qadja_ylim=[0,0.02]
+# elif v_l==0.92 and v_u==1.08:
+#     Padja_ylim=[0,0.0015]
+#     Padjr_ylim=[0,30]
+#     Qadja_ylim=[0,0.02]
+
+# plot real and reactive power adjustment
+Padja_ylim=[0,0.0015]
+Padjr_ylim=[0,30]
+Qadja_ylim=[0,0.02]
+
+iplt+=1
+plt.figure(iplt) 
+dpsg_a=(psg_t-psg)*sbase
+id_inac=np.where(psg==0)
+dpsg_r=(psg_t-psg)/psg_max*100
+dpsg_r[id_inac]=0
+dpvg_a=(pg_t-pg)*sbase
+id_inac=np.where(abs(pll_g_max[busid_g_LL])<1e-5)
+dpvg_r=(pg_t-pg)/pll_g_max[busid_g_LL]*100
+dpvg_r[id_inac]=0
+dpg_a=np.concatenate((dpvg_a,dpsg_a))
+dpg_r=np.concatenate((dpvg_r,dpsg_r))
+
+fig, ax1 = plt.subplots()
+color='tab:red'
+ax1.set_xlabel('Generator index')
+ax1.set_ylabel('Mw',color=color)
+ax1.plot(range(1,len(dpg_a)+1),dpg_a,'.',markersize=2.5,color=color)
+ax1.tick_params(axis='y', labelcolor='tab:red')
+ax1.set_yticks([0,0.0005,0.001,0.0015])
+#plt.ylim(Padja_ylim)
+ax2=ax1.twinx()
+color='tab:green'
+ax2.set_ylabel('Percent %', color=color)  # we already handled the x-label with ax1
+ax2.plot(range(1,len(psg)+len(pg)+1),dpg_r,'*',markersize=2.5, color=color)
+ax2.tick_params(axis='y', labelcolor=color)
+plt.xlim([1,len(dpg_r)+1])
+#plt.ylim(Padjr_ylim)
+plt.title('Real Power Adjustment')
+plt.grid(True)
+plt.savefig(path_plt+'/Pgen_Adjust.png', dpi=400) 
+
 iplt+=1
 plt.figure(iplt) 
 plot_qsg=plt.plot(qsg,'.')
@@ -809,36 +957,83 @@ plt.legend((plot_qsgt[0], plot_qsg[0]), ('Optimal', 'Initial'))
 plt.grid(True)
 plt.savefig(path_plt+'/Qsgen.png', dpi=400)  
 
+
 iplt+=1
 plt.figure(iplt) 
-plot_vm=plt.plot(vmll,'.', markersize=3)
-plot_vm0=plt.plot(vmll0,'.',markersize=3)
+dqsg_a=(qsg_t-qsg)*sbase
+id_inac=np.where(abs(qsg_t)<1e-3)
+dqsg_r=(qsg_t-qsg)/qsg_max*100
+dqsg_r[id_inac]=0
+
+dqvg_a=(qg_t-qg)*sbase
+id_inac=np.where(abs(qg_t)<1e-4)
+dqvg_r=(qg_t-qg)/qll_g_max[busid_g_LL]*100
+dqvg_r[id_inac]=0
+
+dqg_a=np.concatenate((dqvg_a,dqsg_a))
+dqg_r=np.concatenate((dqvg_r,dqsg_r))
+fig, ax1 = plt.subplots()
+color='tab:red'
+ax1.set_xlabel('Generator index')
+ax1.set_ylabel('Mvar',color=color)
+ax1.plot(range(1,len(dqg_a)+1),dqg_a,'.',markersize=3,color=color)
+ax1.tick_params(axis='y', labelcolor='tab:red')
+#plt.ylim(Qadja_ylim)
+ax2=ax1.twinx()
+color='tab:green'
+ax2.set_ylabel('Percent %', color=color)  # we already handled the x-label with ax1
+ax2.plot(range(1,len(dqg_r)+1),dqg_r,'--', color=color)
+ax2.tick_params(axis='y', labelcolor=color)
+plt.xlim([1,len(dqg_r)+1])
+plt.title('Reactive Power Adjustment')
+plt.grid(True)
+plt.savefig(path_plt+'/Qgen_Adjust.png', dpi=400) 
+
+sum_dpga=sum(abs(dpg_a))
+sum_dqga=sum(abs(dqg_a[0:-18]))
+sum_dsha=sum(abs(dqg_a[-18:]))
+print('Total Pgen Adjustment (Mw):',sum_dpga)
+print('Total Qgen Adjustment (Mvar):',sum_dqga)
+print('Total Shunt Adjustment (Mvar):',sum_dsha)
+
+iplt+=1
+plt.figure(iplt) 
+plot_vm=plt.plot(vmll,marker='o', markersize=0.5)
+plot_vm0=plt.plot(vmll0,marker='o',markersize=0.5)
 plot_ub=plt.plot([v_u]*nLL,'--',linewidth=1)
 plot_lb=plt.plot([v_l]*nLL,'--',linewidth=1)
 plt.ylim(vplt_min, vplt_max)
-plt.title('Voltage profile')
-plt.xlabel('Bus index')
-plt.ylabel('v (p.u.)')
+plt.title('v (p.u.)')
 plt.legend(['Optimal', 'Initial','upper','lower'])
 plt.grid(True)
-plt.savefig(path_plt+'/DCOPF_VProfile.png', dpi=400) 
+plt.savefig(path_plt+'/VProfile.png', dpi=400) 
 
+path_result = os.path.join(path_output, 'MatpowerResult')
+from scipy.io import loadmat
+vm_Matpower = loadmat(path_result+'\\'+'vm_mpc_maui_21Q3_vm.m')
+vm_Matpower =vm_Matpower['vm']
+id_isolated=np.where(vm_Matpower==1)[0]
+vm_Matpower=np.delete(vm_Matpower, id_isolated)
 
+vpool=np.concatenate((vmll,vmll0))
+vpool=np.concatenate((vpool,vm_Matpower))
+vplt_max=max(vpool)*1.02
+vplt_min=min(vpool)*0.98
 iplt+=1
-id_shunt=range(1,19)
-fig, ax1 = plt.subplots()
-color = 'tab:red'
-ax1.set_xlabel('Switched shunt index')
-ax1.set_ylabel('Reactive power (Mvar)', color=color)
-ax1.plot(id_shunt,qsg_t[-18:]*sbase, markersize=3,color=color)
-ax1.tick_params(axis='y', labelcolor=color)
+plt.figure(iplt) 
+plot_vm=plt.plot(vmll,'r.')
+plot_vm0=plt.plot(vmll0,'b.')
+# plot_vmMp=plt.plot(vm_Matpower,'y.')
+plot_ub=plt.plot([v_u]*nLL,'--',linewidth=1.5)
+plot_lb=plt.plot([v_l]*nLL,'--',linewidth=1.5)
+plt.ylim(vplt_min, vplt_max)
+plt.title('Voltage Profile Comparison')
+plt.xlabel('Bus index')
+plt.ylabel('Voltage (p.u.)')
+#plt.legend(['ACOPF (P)', 'DCOPF','ACOPF (M)','upper','lower'])
+plt.legend(['ACOPF (P)', 'DCOPF','upper','lower'])
+plt.grid(True)
+plt.savefig(path_plt+'/VProfile.png', dpi=400) 
 
-ax2 = ax1.twinx()  # instantiate a second axes that shares the same x-axis
-
-color = 'tab:green'
-ax2.set_ylabel('Loading percent %', color=color)  # we already handled the x-label with ax1
-ax2.plot(id_shunt,qsg_t[-18:]*sbase/net.sgen.max_q_mvar[-18:].to_numpy()*100,'--', color=color)
-ax2.tick_params(axis='y', labelcolor=color)
-plt.xlim([1,len(id_shunt)])
-plt.title('Reactive output of switched shunts (Mvar)')
-plt.savefig(path_plt+'/Q_Switchedshunts.png', dpi=400) 
+print('Maximum voltage:',max(vmll))
+print('Minimum voltage:',min(vmll))

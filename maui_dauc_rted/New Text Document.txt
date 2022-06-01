@@ -1,0 +1,2 @@
+(1) Is RTED_Load.csv load data for real-time ACOPF?
+(2) Are Real power output limits of Generators 'Pmin' and 'Pmax' in 'Gen_info.csv' file?
