@@ -38,9 +38,10 @@ beta_qgmin=-1.5
 path_output = os.path.join(path_par, 'Matlab files\output file')
 icase = 'Maui2022dm_rd_v33_shunt.mat'
 net = pc.from_mpc(path_output + '\\' + icase, f_hz=60)# initial condition
-icase= 'Maui2022dm_rd_AggregateGens.mat'# physical system simulator
-net_t=pc.from_mpc(path_output + '\\' + icase, f_hz=60)
-
+# icase= 'Maui2022dm_rd_AggregateGens.mat'# physical system simulator
+# net_t=pc.from_mpc(path_output + '\\' + icase, f_hz=60)
+icase = 'Maui2022dm_rd_v33_shunt_OnlyLoad.mat'
+net_nt = pc.from_mpc(path_output + '\\' + icase, f_hz=60)# initial condition
 
 sbase=net.sn_mva#10 MVA
 
@@ -220,6 +221,7 @@ class powerfactor:
     def __init__(self):
         self.Ld=0.9
         self.DPV=0.95
+        self.Gen=0.95
 pf=powerfactor()
 
 # linear power flow model
@@ -270,8 +272,8 @@ pg=df_rted.iloc[id_t,clnid_g].to_numpy()/sbase
 if SinGen>0:
     pg_t=np.delete(pg_t,busid_s_SGen)# variable
     pg=np.delete(pg,busid_s_SGen)# prefered value
-qg_t=pg_t*0
-qg=pg*0 
+qg_t=pg_t*np.tan(np.arccos(pf.Gen))
+qg=pg*np.tan(np.arccos(pf.Gen)) 
 
 pll_g_t=np.matmul(gen_to_LL,pg_t)
 qll_g_t=np.matmul(gen_to_LL,qg_t)
@@ -318,3 +320,9 @@ while (err_vll>1e-5 and itr_pf<itr_pf_max):
     err_vll=max(abs(vll-vll0))
     vll0=vll
     itr_pf=itr_pf+1
+
+# dispatch load data
+pp.runpp(net_nt, algorithm='nr', calculate_voltage_angles=True)
+net_nt.load.p_mw=-np.real(sll_net_t[:-1])*sbase
+net_nt.load.q_mvar=-np.imag(sll_net_t[:-1])*sbase
+#pp.runpp(net_nt, algorithm='nr', calculate_voltage_angles=True)
