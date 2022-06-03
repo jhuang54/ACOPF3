@@ -64,7 +64,8 @@ with open('GensDPVs.txt','r') as f:
             Gens_tab.append(lines[i])
 f.close()            
 with open('Gens.txt','w') as f:
-        f.writelines(Gens_tab)
+     for i in Gens_tab:
+        f.writelines(i)
 f.close()
     
 DPVbusName=[Geninfo.loc[gname,'bus name'] for gname in GName_DPV]

@@ -36,7 +36,8 @@ beta_qgmin=-1.5
 # path_cur = Path(os.getcwd())
 # path_par = path_cur.parent.absolute()
 path_output = os.path.join(path_par, 'Matlab files\output file')
-icase = 'Maui2022dm_rd_v33_shunt.mat'
+#icase = 'Maui2022dm_rd_v33_shunt.mat'
+icase = 'Maui2022dm_rd_v33_shunt_QGen.mat'
 net = pc.from_mpc(path_output + '\\' + icase, f_hz=60)# initial condition
 # icase= 'Maui2022dm_rd_AggregateGens.mat'# physical system simulator
 # net_t=pc.from_mpc(path_output + '\\' + icase, f_hz=60)
@@ -72,7 +73,6 @@ Ybus = Ybus[0:nbus, mappd2ppc]
 I = Ybus.dot(v)
 S = v * np.conj(I)
 
-
 # FPL model
 from scipy.sparse import csc_matrix
 from scipy.sparse.linalg import inv
@@ -84,20 +84,26 @@ busid_LL=list(range(0,nbus))
 busid_LL.remove(busid_slack)
 
 # reactive power outpout of generators and DPV
-busid_Gen=net.gen.bus
+busid_Gen=net.gen.bus.to_numpy()
 Q_Gen=net.res_gen.q_mvar.to_numpy()
 
-busid_Sgen=net.sgen.bus
+busid_Sgen=net.sgen.bus.to_numpy()
 Q_Sgen=net.res_sgen.q_mvar.to_numpy()
 
-busid0_GSg=busid_Gen+busid_Sgen
-id_GSg=np.argsort(busid_GSg)
-Q0_GSg=np.concatenate((Q_Gen,Q_Sgen))
+busid0_GSg=np.concatenate((busid_Gen,busid_Sgen))
+busid_GSG=np.sort(busid0_GSg)
 
+id_GSg=np.argsort(busid0_GSg)
+
+Q0_GSg=np.concatenate((Q_Gen,Q_Sgen))
 n_GSg=len(busid_Gen)+len(busid_Sgen)
-Q_GSg=np.zeros(n_GSg,1)
+Q_GSg=np.zeros(n_GSg)
 for i in range(n_GSg):
     Q_GSg[i]=Q0_GSg[id_GSg[i]]
+
+QGen_tab = {"busid": busid_GSG,"q_mvar":Q_GSg}
+QGen_tab = pd.DataFrame(QGen_tab)
+QGen_tab=QGen_tab.set_index("busid")
 
 # # generator global bus id and local id in LL
 # busid_gen=list(net.gen.bus)
@@ -163,7 +169,7 @@ for count, gname in enumerate(GName_rt):
         clnid_DPV.append(count)
 
 # dispatched generator, DPV bus id in Maui code
-busid_gen=[Geninfo.loc[gname,'busid'] for gname in GName_g]
+busid_genrt=[Geninfo.loc[gname,'busid'] for gname in GName_g]
 busid_DPV=[Geninfo.loc[gname,'busid'] for gname in GName_DPV]
 
 # generator p limits
@@ -172,19 +178,21 @@ pg_max=[Geninfo.loc[gname,'Pmax'] for gname in GName_g]
 
 
 # # dispatched generator bus id in Maui code exluding slack bus
-busid_gen=list(busid_gen)
+busid_genrt=list(busid_genrt)
 # slack bus relative id in busid_gen
-SinGen=busid_gen.count(busid_slack)
+SinGen=busid_genrt.count(busid_slack)
 if SinGen>0:
-    busid_s_SGen=busid_gen.index(busid_slack)
+    busid_s_SGen=busid_genrt.index(busid_slack)
+    GenName_s=GName_g[busid_s_SGen]
 
-    # remove slack bus in busid_gen
-    busid_gen.remove(busid_slack)
+    # remove slack bus in busid_genrt
+    busid_genrt.remove(busid_slack)
+
     # remove capacity
     del pg_min[busid_s_SGen]
     del pg_max[busid_s_SGen]
 # gen relative bus id in busid_LL
-busid_g_LL=np.array(busid_LL).searchsorted(busid_gen)
+busid_g_LL=np.array(busid_LL).searchsorted(busid_genrt)
 
 # slack bus relative id in busid_DPV
 busid_DPV=list(busid_DPV)
@@ -200,7 +208,7 @@ if SinDPV>0:
 busid_DPV_LL=np.array(busid_LL).searchsorted(busid_DPV)
 
 # gen to bus in LL set
-ngen=len(busid_gen)
+ngen=len(busid_genrt)
 gen_to_LL=np.zeros((nLL,ngen), dtype=int)
 for igen in range(0,ngen):
     gen_to_LL[busid_g_LL[igen],igen]=1
@@ -299,8 +307,16 @@ pg=df_rted.iloc[id_t,clnid_g].to_numpy()/sbase
 if SinGen>0:
     pg_t=np.delete(pg_t,busid_s_SGen)# variable
     pg=np.delete(pg,busid_s_SGen)# prefered value
-qg_t=pg_t*np.tan(np.arccos(pf.Gen))
-qg=pg*np.tan(np.arccos(pf.Gen)) 
+qg_t=np.zeros(ngen)
+idG_bus=np.zeros(nbus,dtype=int)
+for i in range(ngen):
+    idbus_tp=busid_genrt[i]
+    if isinstance(QGen_tab.loc[idbus_tp,'q_mvar'], pd.Series):
+        qg_t[i]=QGen_tab.loc[idbus_tp,'q_mvar'].to_numpy()[idG_bus[idbus_tp]]
+        idG_bus[idbus_tp]=idG_bus[idbus_tp]+1
+    else:
+        qg_t[i]=QGen_tab.loc[idbus_tp,'q_mvar']
+    
 
 pll_g_t=np.matmul(gen_to_LL,pg_t)
 qll_g_t=np.matmul(gen_to_LL,qg_t)
