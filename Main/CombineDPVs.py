@@ -50,7 +50,23 @@ for count, gname in enumerate(GName_rt):
     else:
         GName_DPV.append(gname)
         clnid_DPV.append(count)
-
+        
+GenbusName=[Geninfo.loc[gname,'bus name'] for gname in GName_g]
+Gens_tab=[]
+# create generator data using the PSS\E raw file format
+with open('GensDPVs.txt','r') as f:
+    lines=f.readlines()
+    for i in range(len(lines)-1):
+        linetp=lines[i]
+        linetp=linetp.split(',')
+        busname=int(linetp[0])
+        if busname in GenbusName:
+            Gens_tab.append(lines[i])
+f.close()            
+with open('Gens.txt','w') as f:
+        f.writelines(Gens_tab)
+f.close()
+    
 DPVbusName=[Geninfo.loc[gname,'bus name'] for gname in GName_DPV]
 
 # read generators
