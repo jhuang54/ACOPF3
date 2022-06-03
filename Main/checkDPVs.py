@@ -45,3 +45,4 @@ beta_qgmin=-1.5
 path_output = os.path.join(path_par, 'Matlab files\output file')
 icase = 'Maui2022dm_rd_v33_shunt_QGen.mat'
 net = pc.from_mpc(path_output + '\\' + icase, f_hz=60)# initial condition
+pp.runpp(net, algorithm='nr', calculate_voltage_angles=True)
