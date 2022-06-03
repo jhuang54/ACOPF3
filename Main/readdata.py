@@ -83,6 +83,22 @@ busid_slack=net.ext_grid.bus[0]
 busid_LL=list(range(0,nbus))
 busid_LL.remove(busid_slack)
 
+# reactive power outpout of generators and DPV
+busid_Gen=net.gen.bus
+Q_Gen=net.res_gen.q_mvar.to_numpy()
+
+busid_Sgen=net.sgen.bus
+Q_Sgen=net.res_sgen.q_mvar.to_numpy()
+
+busid0_GSg=busid_Gen+busid_Sgen
+id_GSg=np.argsort(busid_GSg)
+Q0_GSg=np.concatenate((Q_Gen,Q_Sgen))
+
+n_GSg=len(busid_Gen)+len(busid_Sgen)
+Q_GSg=np.zeros(n_GSg,1)
+for i in range(n_GSg):
+    Q_GSg[i]=Q0_GSg[id_GSg[i]]
+
 # # generator global bus id and local id in LL
 # busid_gen=list(net.gen.bus)
 # #busid_gen.remove(busid_slack)
