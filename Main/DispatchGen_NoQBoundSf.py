@@ -485,14 +485,6 @@ vll=v[busid_LL]
 vmll0=vm[busid_LL]
 
 iplt=0
-# plt.figure(iplt)
-# plot_vm=plt.plot(vmll,'.')
-# plot_ub=plt.plot([v_u]*nLL,'--',linewidth=1)
-# plot_lb=plt.plot([v_l]*nLL,'--',linewidth=1)
-# plt.ylim(vplt_min, vplt_max)
-# plt.title('v (p.u.)')
-# plt.savefig(path_plt+'/VProfile0.png', dpi=400) 
-
 print('max v:',vmll.max())
 print('min v:',vmll.min())
 
