@@ -30,9 +30,7 @@ import pandapower.networks as pn
 
 # sbase=net.sn_mva#10 MVA
 
-#net = pn.case39()
-
-net = pn.case30()
+net = pn.case39()
 
 nbus = len(net.bus)
 nLL=nbus-1
@@ -136,26 +134,21 @@ E2=w.conj()*w
 
 Dw=np.diag(w.conj())
 
-Zt0=Z_pu/v0.conjugate()
+Zt0=Z_pu/v0.conjugate
 
 MN=np.matmul(Dw,Zt0)
 
 Coef_p_LDF=np.real(MN)
 Coef_q_LDF=np.imag(MN)
 
-pLL=np.real(Sa[busid_LL])
-qLL=np.imag(Sa[busid_LL])
+vms_LDF=vms0+2*Coef_p_LDF*pLL+2*Coef_q_LDF*qLL;
 
-vms_LDF=E2+2*Coef_p_LDF.dot(pLL)+2*Coef_q_LDF.dot(qLL)
-vm_LDF=np.squeeze(np.asarray(vms_LDF))
 
-#vm_LDF=abs(w)+Coef_p_LDF.dot(pLL)+Coef_q_LDF.dot(qLL)
-
-# MN=np.matmul(np.matmul(np.diag(w),Z_pu.conjugate()),np.diag(1/w))
-# M=2*np.real(MN)
-# N=-2*np.imag(MN)
-# ve=E2+np.matmul(M,np.real(S[busid_LL]))+np.matmul(N,np.imag(S[busid_LL]))
-# ve=E2+M.dot(np.real(Sa[busid_LL]))+N.dot(np.imag(Sa[busid_LL]))
+MN=np.matmul(np.matmul(np.diag(w),Z_pu.conjugate()),np.diag(1/w))
+M=2*np.real(MN)
+N=-2*np.imag(MN)
+#ve=E2+np.matmul(M,np.real(S[busid_LL]))+np.matmul(N,np.imag(S[busid_LL]))
+ve=E2+M.dot(np.real(Sa[busid_LL]))+N.dot(np.imag(Sa[busid_LL]))
 
 
 # check I=Y*V
@@ -171,13 +164,13 @@ vm_LDF=np.squeeze(np.asarray(vms_LDF))
 # VLd=np.squeeze(np.asarray(VLd))
 # VLe=VL0+VLd
 #VLe=-np.matmul(Z_pu,YLS)*v0+Z_pu.dot(IL)
-# ve=abs(w)+R.dot(np.real(S[busid_LL]))+X.dot(np.imag(S[busid_LL]))
-# ve=v0+R.dot(np.real(S[busid_LL]))+X.dot(np.imag(S[busid_LL]))
+ve=abs(w)+R.dot(np.real(S[busid_LL]))+X.dot(np.imag(S[busid_LL]))
+ve=v0+R.dot(np.real(S[busid_LL]))+X.dot(np.imag(S[busid_LL]))
 # Ybusa=Ybus.todense()
 # Ybusa=np.squeeze(np.asarray(Ybusa))
 
 # voltage magnitude accuracy
-err_v=abs(vm_LDF-vm[busid_LL])
+err_v=abs(ve-vm[busid_LL])
 print('max err:\n',err_v.max())
 
 # # generator global bus id and local id in LL
@@ -201,7 +194,7 @@ print('max err:\n',err_v.max())
 
 # generator information
 # generators' bus id in code
-#path_maui=os.path.join(path_par, 'maui_dauc_rted')
+path_maui=os.path.join(path_par, 'maui_dauc_rted')
 geninfo_name='Gen_Info.csv'
 
 df_geninfo = pd.read_csv (path_maui+'\\'+geninfo_name)
